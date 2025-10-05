@@ -1,1 +1,2 @@
 Persian Calendar
+Jalali Support

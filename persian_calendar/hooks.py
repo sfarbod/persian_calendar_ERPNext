@@ -24,6 +24,9 @@ app_license = "mit"
 # Includes in <head>
 # ------------------
 
+app_include_js = ["jalali_support.bundle.PEGUJLI7.js"]
+#app_include_css = ["persian_calendar.bundle.css"]
+
 # include js, css files in header of desk.html
 # app_include_css = "/assets/persian_calendar/css/persian_calendar.css"
 # app_include_js = "/assets/persian_calendar/js/persian_calendar.js"
@@ -148,6 +151,10 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
+scheduler_events = {
+   "daily": ["persian_calendar.jalali_support.scheduler.month_end_runner"]
+}
+ 
 # scheduler_events = {
 # 	"all": [
 # 		"persian_calendar.tasks.all"
@@ -242,3 +249,5 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+fixtures = ["Custom Field"]
+desktop_items = ["jalali_settings"]
