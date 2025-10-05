@@ -24,7 +24,7 @@ app_license = "mit"
 # Includes in <head>
 # ------------------
 
-app_include_js = ["jalali_support.bundle.PEGUJLI7.js"]
+app_include_js = ["jalali_support.bundle.js"]
 #app_include_css = ["persian_calendar.bundle.css"]
 
 # include js, css files in header of desk.html

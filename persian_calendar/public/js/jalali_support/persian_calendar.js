@@ -595,10 +595,10 @@ function overrideControlsWhenReady() {
   frappe.ui.form.ControlDate = JalaliControlDate;
   frappe.ui.form.ControlDatetime = JalaliControlDatetime;
   console.log("ControlDate & ControlDatetime patched for Jalali");
-  
-  // Call overrideControlsWhenReady only if jalaliEnabled is true
-  overrideControlsWhenReady();
 }
+
+// Call overrideControlsWhenReady only if jalaliEnabled is true
+overrideControlsWhenReady();
 
 })(); // End of async IIFE
 

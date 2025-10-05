@@ -502,8 +502,8 @@
       frappe.ui.form.ControlDate = JalaliControlDate;
       frappe.ui.form.ControlDatetime = JalaliControlDatetime;
       console.log("ControlDate & ControlDatetime patched for Jalali");
-      overrideControlsWhenReady();
     }
+    overrideControlsWhenReady();
   })();
 
   // ../persian_calendar/persian_calendar/public/js/jalali_support/formatters.js
@@ -634,4 +634,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.PEGUJLI7.js.map
+//# sourceMappingURL=jalali_support.bundle.5DMAKGOO.js.map
