@@ -251,3 +251,6 @@ scheduler_events = {
 
 fixtures = ["Custom Field"]
 desktop_items = ["jalali_settings"]
+
+# Import formatters to override date formatting for exports
+import persian_calendar.jalali_support.formatters
