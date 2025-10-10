@@ -111,3 +111,29 @@ def gregorian_to_jalali(gy, gm, gd):
 frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
+
+# Override query_report format_fields function for reports
+def format_fields_jalali(data):
+    """Override format_fields to handle Jalali dates in reports"""
+    from frappe.desk.query_report import format_fields as original_format_fields
+    
+    # Call original format_fields first
+    original_format_fields(data)
+    
+    # If Jalali is enabled, format date fields
+    if not is_jalali_enabled():
+        return
+    
+    for i, col in enumerate(data.columns):
+        if col.get("fieldtype") in ("Date", "Datetime"):
+            for row in data.result:
+                index = col.get("fieldname") if isinstance(row, dict) else i
+                if row[index]:
+                    if col.get("fieldtype") == "Date":
+                        row[index] = formatdate(row[index])
+                    elif col.get("fieldtype") == "Datetime":
+                        row[index] = format_datetime(row[index])
+
+# Monkey patch the format_fields function
+import frappe.desk.query_report
+frappe.desk.query_report.format_fields = format_fields_jalali
