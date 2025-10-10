@@ -112,28 +112,35 @@ frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
 
-# Override query_report format_fields function for reports
-def format_fields_jalali(data):
-    """Override format_fields to handle Jalali dates in reports"""
-    from frappe.desk.query_report import format_fields as original_format_fields
+# Override make_xlsx to handle Jalali dates
+def make_xlsx_jalali(data, sheet_name, wb=None, column_widths=None):
+    """Override make_xlsx to convert dates to Jalali format"""
+    from frappe.utils.xlsxutils import make_xlsx as original_make_xlsx
     
-    # Call original format_fields first
-    original_format_fields(data)
-    
-    # If Jalali is enabled, format date fields
     if not is_jalali_enabled():
-        return
+        return original_make_xlsx(data, sheet_name, wb, column_widths)
     
-    for i, col in enumerate(data.columns):
-        if col.get("fieldtype") in ("Date", "Datetime"):
-            for row in data.result:
-                index = col.get("fieldname") if isinstance(row, dict) else i
-                if row[index]:
-                    if col.get("fieldtype") == "Date":
-                        row[index] = formatdate(row[index])
-                    elif col.get("fieldtype") == "Datetime":
-                        row[index] = format_datetime(row[index])
+    # Convert datetime objects to Jalali strings before passing to original function
+    converted_data = []
+    for row in data:
+        converted_row = []
+        for item in row:
+            if isinstance(item, datetime.datetime):
+                converted_row.append(format_datetime(item))
+            elif isinstance(item, datetime.date):
+                converted_row.append(formatdate(item))
+            else:
+                converted_row.append(item)
+        converted_data.append(converted_row)
+    
+    return original_make_xlsx(converted_data, sheet_name, wb, column_widths)
 
-# Monkey patch the format_fields function
-import frappe.desk.query_report
-frappe.desk.query_report.format_fields = format_fields_jalali
+# Monkey patch make_xlsx function
+def patch_xlsx_functions():
+    """Patch xlsx functions for Jalali support"""
+    import frappe.utils.xlsxutils
+    frappe.utils.xlsxutils.make_xlsx = make_xlsx_jalali
+    print("make_xlsx patched for Jalali support")
+
+# Apply the patch
+patch_xlsx_functions()
