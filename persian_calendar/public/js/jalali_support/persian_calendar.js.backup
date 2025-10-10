@@ -1,0 +1,684 @@
+(async function() {
+  frappe.provide("frappe.ui.form");
+
+  console.log("jalali_support script loaded");
+
+  // Check if Jalali calendar is enabled
+  let jalaliEnabled = false;
+  try {
+    const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
+    jalaliEnabled = result && result.message;
+    console.log("Jalali calendar enabled:", jalaliEnabled);
+  } catch(e) {
+    console.log("Error checking Jalali settings:", e);
+    jalaliEnabled = false;
+  }
+
+  if (!jalaliEnabled) {
+    console.log("Jalali calendar is disabled, skipping datepicker overrides");
+    return; // Exit the entire script if disabled
+  }
+
+  // If Jalali is enabled, proceed with fetching week bounds and overriding controls
+  let FIRST_DAY = 6;
+  try {
+    const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_week_bounds" });
+    if (r && r.message && r.message.week_start != null) {
+      FIRST_DAY = r.message.week_start;
+    }
+    console.log("Week start day:", FIRST_DAY);
+  } catch(e) {
+    console.log("Error fetching week bounds:", e);
+  }
+
+function gToJ(gDate) {
+  return toJalali(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
+}
+
+function jToG(jy, jm, jd) {
+  return toGregorian(jy, jm, jd);
+}
+
+function formatJalaliDate(jy, jm, jd) {
+  return `${jy}-${String(jm).padStart(2,"0")}-${String(jd).padStart(2,"0")}`;
+}
+
+function parseJalaliDate(dateStr) {
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3) return null;
+  return { jy: parts[0], jm: parts[1], jd: parts[2] };
+}
+
+function overrideControlsWhenReady() {
+  const hasControls = frappe && frappe.ui && frappe.ui.form && frappe.ui.form.ControlDate && frappe.ui.form.ControlDatetime;
+  if (!hasControls) {
+    setTimeout(overrideControlsWhenReady, 50);
+    return;
+  }
+
+  const BaseControlDate = frappe.ui.form.ControlDate;
+  const BaseControlDatetime = frappe.ui.form.ControlDatetime;
+
+  // Check if already patched
+  if (BaseControlDate.__jalali_patched) {
+    return;
+  }
+
+  class JalaliControlDate extends BaseControlDate {
+    make_input() {
+      // Create input element manually to avoid flatpickr initialization
+      this.$input = this.$wrapper.find('input');
+      if (!this.$input.length) {
+        this.$input = $(`<input class="form-control" type="text">`);
+        this.$wrapper.append(this.$input);
+      }
+      
+      // Remove any existing flatpickr attributes and classes
+      this.$input.removeAttr('data-input');
+      this.$input.removeClass('flatpickr-input');
+      this.$input.removeAttr('readonly');
+      
+      // Make input editable for better UX
+      this.$input.attr('readonly', false);
+      
+      // Create custom Jalali datepicker
+      this.createJalaliDatepicker();
+    }
+
+    createJalaliDatepicker() {
+      const me = this;
+      const $input = this.$input;
+      
+      // Remove existing calendar if any
+      $input.siblings('.jalali-calendar').remove();
+      
+      // Create calendar container with Frappe's datepicker styling
+      const $calendar = $(`
+        <div class="datepicker datepicker-dropdown jalali-calendar" style="display: none; position: fixed; z-index: 99999; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); min-width: 280px; width: 280px;">
+          <div class="datepicker--nav" style="border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 8px;">
+            <button type="button" class="prev-year datepicker--nav-action" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-color); border-radius: 4px;" title="سال قبل">‹‹</button>
+            <button type="button" class="prev-month datepicker--nav-action" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-color); border-radius: 4px;" title="ماه قبل">‹</button>
+            <span class="current-month-year datepicker--nav-title" style="font-weight: 600; cursor: pointer; padding: 8px 12px; color: var(--text-color); min-width: 120px; text-align: center; border-radius: 4px;" title="کلیک برای تغییر سال و ماه"></span>
+            <button type="button" class="next-month datepicker--nav-action" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-color); border-radius: 4px;" title="ماه بعد">›</button>
+            <button type="button" class="next-year datepicker--nav-action" style="background: none; border: none; cursor: pointer; padding: 8px; color: var(--text-color); border-radius: 4px;" title="سال بعد">››</button>
+          </div>
+          <div class="datepicker--content" style="padding: 10px;">
+            <div class="datepicker--days datepicker--body">
+              <div class="datepicker--days-names" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; margin-bottom: 6px;">
+                <!-- Weekdays will be populated dynamically based on FIRST_DAY -->
+              </div>
+                  <div class="jalali-days-grid" style="display: grid !important; grid-template-columns: repeat(7, 1fr) !important; gap: 2px !important; padding: 5px !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 1 !important;"></div>
+            </div>
+          </div>
+          <div class="datepicker--buttons" style="border-top: 1px solid var(--border-color); padding: 10px; text-align: center;">
+            <button type="button" class="today-btn datepicker--button" style="background: var(--date-active-bg); color: var(--date-active-text); border: none; padding: 6px 12px; border-radius: var(--border-radius-tiny); cursor: pointer; font-size: 12px; font-weight: 500;">امروز</button>
+          </div>
+        </div>
+      `);
+      
+      // Insert calendar after input
+      $input.after($calendar);
+      console.log('Calendar created and inserted:', $calendar.length, $calendar);
+      
+      // Current Jalali date - get current date
+      const now = new Date();
+      let currentJalali = gToJ(now);
+      
+      // Store calendar reference for easy access
+      me.$jalaliCalendar = $calendar;
+      
+      // Update calendar display
+      const updateCalendar = () => {
+        console.log('updateCalendar called, currentJalali:', currentJalali);
+        const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 
+                          'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+        
+        $calendar.find('.current-month-year').text(`${monthNames[currentJalali.jm - 1]} ${currentJalali.jy}`);
+        console.log('Month/Year updated:', `${monthNames[currentJalali.jm - 1]} ${currentJalali.jy}`);
+        
+        // Update weekdays based on FIRST_DAY with Frappe styling
+        const weekdayNames = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش']; // Sunday=0 to Saturday=6
+        const $weekdaysContainer = $calendar.find('.datepicker--days-names');
+        $weekdaysContainer.empty();
+        
+        // Start from FIRST_DAY and cycle through 7 days
+        for (let i = 0; i < 7; i++) {
+          const dayIndex = (FIRST_DAY + i) % 7;
+          const $weekday = $(`<div class="datepicker--day-name" style="text-align: center; font-weight: 500; padding: 6px; color: var(--text-color); font-size: 11px; text-transform: uppercase;">${weekdayNames[dayIndex]}</div>`);
+          $weekdaysContainer.append($weekday);
+        }
+        
+        // Generate days for current month with Frappe styling
+        const daysInMonth = currentJalali.jm <= 6 ? 31 : (currentJalali.jm <= 11 ? 30 : (currentJalali.jy % 4 === 3 ? 30 : 29));
+        console.log('Days in month:', daysInMonth, 'for month:', currentJalali.jm);
+        const $daysContainer = $calendar.find('.jalali-days-grid');
+        console.log('Days container found:', $daysContainer.length);
+        $daysContainer.empty();
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+          const $day = $(`<div class="jalali-day-cell" data-day="${day}" style="text-align: center !important; padding: 8px !important; cursor: pointer !important; border-radius: 4px !important; transition: all 0.15s ease !important; font-size: 13px !important; font-weight: 400 !important; color: #333 !important; min-height: 32px !important; display: flex !important; align-items: center !important; justify-content: center !important; background: transparent !important; border: none !important; width: 100% !important; height: 32px !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 1 !important;">${day}</div>`);
+          
+          // Add hover effect with Frappe styling
+          $day.on('mouseenter', function() {
+            if (!$(this).hasClass('-selected-') && !$(this).hasClass('-current-')) {
+              $(this).css('background-color', 'var(--fg-hover-color)');
+            }
+          }).on('mouseleave', function() {
+            if (!$(this).hasClass('-selected-') && !$(this).hasClass('-current-')) {
+              $(this).css('background-color', '');
+            }
+          });
+          
+          // Highlight today with Frappe styling
+          const today = gToJ(new Date());
+          if (currentJalali.jy === today.jy && currentJalali.jm === today.jm && day === today.jd) {
+            $day.addClass('-current-').css({
+              'background-color': 'var(--date-range-bg)',
+              'color': 'var(--text-color)',
+              'font-weight': 'var(--weight-bold)'
+            });
+          }
+          
+          // Highlight selected day if it matches input value with Frappe styling
+          const inputValue = $input.val();
+          if (inputValue) {
+            const jalali = parseJalaliDate(inputValue);
+            if (jalali && jalali.jy === currentJalali.jy && jalali.jm === currentJalali.jm && jalali.jd === day) {
+              $day.addClass('-selected-').css({
+                'background-color': 'var(--date-active-bg)',
+                'color': 'var(--date-active-text)',
+                'border-radius': 'var(--border-radius-tiny)'
+              });
+            }
+          }
+          
+          // Day click handler
+          $day.on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const selectedDay = parseInt($(this).data('day'));
+            console.log('Selected day:', selectedDay, 'Current Jalali before:', currentJalali);
+            
+            // Check if this day is already selected (has active background)
+            const isAlreadySelected = $(this).hasClass('-selected-');
+            
+            if (isAlreadySelected) {
+              // If clicking on already selected day, clear the selection
+              console.log('Clearing selection for day:', selectedDay);
+              
+              // Remove highlight from all days
+              $calendar.find('.jalali-day-cell').removeClass('-selected-').css({
+                'background-color': '',
+                'color': '#333'
+              });
+              
+              // Clear input value
+              $input.val('');
+              
+              // Close calendar immediately
+              console.log('Hiding calendar...');
+              $calendar.hide();
+              
+              // Set empty value using Frappe's method
+              setTimeout(() => {
+                console.log('Calling set_value with empty string...');
+                me.set_value('');
+              }, 10);
+              
+              return; // Exit early
+            }
+            
+            // Create a fresh Jalali date object with the selected day
+            const newJalali = {
+              jy: currentJalali.jy,
+              jm: currentJalali.jm,
+              jd: selectedDay
+            };
+            console.log('New Jalali:', newJalali);
+            
+            const jalaliStr = formatJalaliDate(newJalali.jy, newJalali.jm, newJalali.jd);
+            console.log('Setting Jalali string:', jalaliStr);
+            
+            // Convert to Gregorian for storage
+            const gregorian = jToG(newJalali.jy, newJalali.jm, newJalali.jd);
+            const gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
+            console.log('Setting Gregorian string:', gregorianStr);
+            
+            // Update current Jalali date first
+            currentJalali.jd = selectedDay;
+            
+                // Update calendar to highlight selected day immediately with Frappe styling
+                $calendar.find('.jalali-day-cell').removeClass('-selected-').css({
+                  'background-color': '',
+                  'color': '#333'
+                });
+            $(this).addClass('-selected-').css({
+              'background-color': 'var(--date-active-bg)',
+              'color': 'var(--date-active-text)',
+              'border-radius': 'var(--border-radius-tiny)'
+            });
+            
+            // Set input value directly first
+            $input.val(jalaliStr);
+            
+            // Close calendar immediately
+            console.log('Hiding calendar...');
+            $calendar.hide();
+            
+            // Set the value using Frappe's method after hiding calendar
+            setTimeout(() => {
+              console.log('Calling set_value...');
+              me.set_value(gregorianStr);
+            }, 10);
+          });
+          
+          $daysContainer.append($day);
+        }
+        console.log('Total days appended:', $daysContainer.children().length);
+        console.log('Days container HTML:', $daysContainer.html().substring(0, 200) + '...');
+        console.log('First day element:', $daysContainer.children().first()[0]);
+      };
+      
+      // Navigation handlers with hover effects
+      $calendar.find('.prev-year, .next-year, .prev-month, .next-month').on('mouseenter', function() {
+        $(this).css('background-color', 'var(--fg-hover-color)');
+      }).on('mouseleave', function() {
+        $(this).css('background-color', 'transparent');
+      });
+      
+      $calendar.find('.prev-year').on('click', () => {
+        currentJalali.jy--;
+        updateCalendar();
+      });
+      
+      $calendar.find('.next-year').on('click', () => {
+        currentJalali.jy++;
+        updateCalendar();
+      });
+      
+      $calendar.find('.prev-month').on('click', () => {
+        if (currentJalali.jm === 1) {
+          currentJalali.jm = 12;
+          currentJalali.jy--;
+        } else {
+          currentJalali.jm--;
+        }
+        updateCalendar();
+      });
+      
+      $calendar.find('.next-month').on('click', () => {
+        if (currentJalali.jm === 12) {
+          currentJalali.jm = 1;
+          currentJalali.jy++;
+        } else {
+          currentJalali.jm++;
+        }
+        updateCalendar();
+      });
+      
+      // Month/year title hover effect
+      $calendar.find('.current-month-year').on('mouseenter', function() {
+        $(this).css('background-color', 'var(--fg-hover-color)');
+      }).on('mouseleave', function() {
+        $(this).css('background-color', 'transparent');
+      });
+      
+      // Click on month/year to show quick selection
+      $calendar.find('.current-month-year').on('click', () => {
+        const newYear = prompt('سال جدید را وارد کنید:', currentJalali.jy);
+        if (newYear && !isNaN(newYear) && newYear > 1300 && newYear < 1500) {
+          currentJalali.jy = parseInt(newYear);
+          updateCalendar();
+        }
+      });
+
+          // Today button handler
+          $calendar.find('.today-btn').on('click', () => {
+            const today = new Date();
+            const todayJalali = gToJ(today);
+            
+            // Set to today's date
+            currentJalali = { jy: todayJalali.jy, jm: todayJalali.jm, jd: todayJalali.jd };
+            
+            const jalaliStr = formatJalaliDate(todayJalali.jy, todayJalali.jm, todayJalali.jd);
+            $input.val(jalaliStr);
+            
+            // Convert to Gregorian for storage
+            const gregorian = jToG(todayJalali.jy, todayJalali.jm, todayJalali.jd);
+            const gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
+            
+            // Set the value using Frappe's method
+            me.set_value(gregorianStr);
+            
+            // Force update the input display
+            setTimeout(() => {
+              if ($input.val() !== jalaliStr) {
+                $input.val(jalaliStr);
+              }
+            }, 100);
+            
+            // Update calendar and close
+            updateCalendar();
+            $calendar.hide();
+          });
+      
+      // Show calendar on input click
+      $input.on('click', (e) => {
+        console.log('Input clicked, showing calendar...');
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Set current month to input value if exists
+        const inputValue = $input.val();
+        if (inputValue) {
+          const jalali = parseJalaliDate(inputValue);
+          if (jalali) {
+            currentJalali = { jy: jalali.jy, jm: jalali.jm, jd: jalali.jd };
+          }
+        }
+        
+        // Position calendar first
+        const inputRect = $input[0].getBoundingClientRect();
+        console.log('Input rect:', inputRect);
+        
+        $calendar.css({
+          position: 'fixed',
+          top: (inputRect.bottom + 5) + 'px',
+          left: inputRect.left + 'px',
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          zIndex: '99999'
+        });
+        
+        // Update calendar content after positioning
+        updateCalendar();
+        
+        console.log('Calendar should be visible now, display:', $calendar.css('display'));
+        console.log('Calendar visibility:', $calendar.css('visibility'));
+        console.log('Calendar opacity:', $calendar.css('opacity'));
+        console.log('Calendar position:', {
+          top: $calendar.css('top'),
+          left: $calendar.css('left'),
+          position: $calendar.css('position'),
+          zIndex: $calendar.css('z-index'),
+          width: $calendar.css('width'),
+          height: $calendar.css('height')
+        });
+        console.log('Calendar element:', $calendar[0]);
+        console.log('Calendar offset:', $calendar.offset());
+        console.log('Calendar is visible?', $calendar.is(':visible'));
+        
+        // Force show with timeout
+        setTimeout(() => {
+          console.log('Timeout - forcing calendar to show');
+          $calendar.show();
+          console.log('After show() - display:', $calendar.css('display'));
+          console.log('After show() - is visible?', $calendar.is(':visible'));
+        }, 100);
+      });
+      
+      // Hide calendar when clicking outside
+      $(document).on('click', (e) => {
+        if (!$(e.target).closest('.jalali-calendar, .datepicker, .form-control').length) {
+          $calendar.hide();
+        }
+      });
+      
+      // Initialize calendar
+      updateCalendar();
+    }
+
+        set_formatted_input(value) {
+          try {
+            const r = super.set_formatted_input(value);
+
+            // Convert Gregorian to Jalali for display
+            if (value) {
+              const gregorianDate = new Date(value + 'T00:00:00Z');
+              const jalali = gToJ(gregorianDate);
+              const jalaliStr = formatJalaliDate(jalali.jy, jalali.jm, jalali.jd);
+              console.log('set_formatted_input - Gregorian:', value, 'Jalali:', jalaliStr);
+              this.$input.val(jalaliStr);
+              
+              // Only update calendar highlight if calendar is closed (to prevent interference)
+              const $calendar = this.$input.siblings('.jalali-calendar');
+              if ($calendar.length && !$calendar.is(':visible')) {
+                // Update current Jalali date for next time calendar opens
+                // This ensures the calendar shows the correct month/year when reopened
+                const currentJalali = { jy: jalali.jy, jm: jalali.jm, jd: jalali.jd };
+              }
+            }
+
+            return r;
+          } catch(e) {
+            console.log('set_formatted_input error:', e);
+            return super.set_formatted_input(value);
+          }
+        }
+  }
+
+  class JalaliControlDatetime extends BaseControlDatetime {
+    make_input() {
+      // Create input element without calling super.make_input()
+      this.$input = this.$wrapper.find('input');
+      if (!this.$input.length) {
+        this.$input = $(`<input class="form-control" type="text" readonly>`);
+        this.$wrapper.append(this.$input);
+      }
+      
+      // Make input editable for better UX
+      this.$input.attr('readonly', false);
+      
+      // Create custom Jalali datetime picker
+      this.createJalaliDatetimePicker();
+    }
+
+    createJalaliDatetimePicker() {
+      const me = this;
+      const $input = this.$input;
+      
+      // Create datetime picker container
+      const $picker = $(`
+        <div class="jalali-datetime-picker" style="display: none; position: absolute; background: white; border: 1px solid #ccc; border-radius: 4px; padding: 10px; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <button type="button" class="prev-month" style="background: none; border: none; cursor: pointer;">‹</button>
+            <span class="current-month-year" style="font-weight: bold;"></span>
+            <button type="button" class="next-month" style="background: none; border: none; cursor: pointer;">›</button>
+          </div>
+          <div class="calendar-weekdays" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 5px;">
+            <div style="text-align: center; font-weight: bold; padding: 5px;">ش</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">ی</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">د</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">س</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">چ</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">پ</div>
+            <div style="text-align: center; font-weight: bold; padding: 5px;">ج</div>
+          </div>
+          <div class="calendar-days" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 10px;"></div>
+          <div class="time-picker" style="display: flex; gap: 10px; align-items: center; justify-content: center;">
+            <input type="number" class="hour-input" min="0" max="23" placeholder="ساعت" style="width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
+            <span>:</span>
+            <input type="number" class="minute-input" min="0" max="59" placeholder="دقیقه" style="width: 60px; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
+          </div>
+          <div class="picker-actions" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+            <button type="button" class="btn-ok" style="background: #007bff; color: white; border: none; padding: 5px 15px; border-radius: 3px; cursor: pointer;">تأیید</button>
+            <button type="button" class="btn-cancel" style="background: #6c757d; color: white; border: none; padding: 5px 15px; border-radius: 3px; cursor: pointer;">لغو</button>
+          </div>
+        </div>
+      `);
+      
+      // Insert picker after input
+      $input.after($picker);
+      
+      // Current Jalali date - get current date
+      const now = new Date();
+      let currentJalali = gToJ(now);
+      let selectedTime = { hour: now.getHours(), minute: now.getMinutes() };
+      
+      // Update calendar display
+      const updateCalendar = () => {
+        const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 
+                          'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+        
+        $picker.find('.current-month-year').text(`${monthNames[currentJalali.jm - 1]} ${currentJalali.jy}`);
+        
+        // Generate days for current month
+        const daysInMonth = currentJalali.jm <= 6 ? 31 : (currentJalali.jm <= 11 ? 30 : (currentJalali.jy % 4 === 3 ? 30 : 29));
+        const $daysContainer = $picker.find('.calendar-days');
+        $daysContainer.empty();
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+          const $day = $(`<div class="calendar-day" data-day="${day}" style="text-align: center; padding: 8px; cursor: pointer; border-radius: 3px;">${day}</div>`);
+          
+          // Highlight current day if it matches input value
+          const inputValue = $input.val();
+          if (inputValue) {
+            const parts = inputValue.split(' ');
+            if (parts.length === 2) {
+              const jalali = parseJalaliDate(parts[0]);
+              if (jalali && jalali.jy === currentJalali.jy && jalali.jm === currentJalali.jm && jalali.jd === day) {
+                $day.css('background-color', '#007bff').css('color', 'white');
+              }
+            }
+          }
+          
+          // Day click handler
+          $day.on('click', function() {
+            const selectedDay = parseInt($(this).data('day'));
+            currentJalali.jd = selectedDay;
+            
+            // Update time inputs
+            $picker.find('.hour-input').val(selectedTime.hour);
+            $picker.find('.minute-input').val(selectedTime.minute);
+            
+            // Highlight selected day
+            $picker.find('.calendar-day').removeClass('selected');
+            $(this).addClass('selected');
+          });
+          
+          $daysContainer.append($day);
+        }
+      };
+      
+      // Navigation handlers
+      $picker.find('.prev-month').on('click', () => {
+        if (currentJalali.jm === 1) {
+          currentJalali.jm = 12;
+          currentJalali.jy--;
+        } else {
+          currentJalali.jm--;
+        }
+        updateCalendar();
+      });
+      
+      $picker.find('.next-month').on('click', () => {
+        if (currentJalali.jm === 12) {
+          currentJalali.jm = 1;
+          currentJalali.jy++;
+        } else {
+          currentJalali.jm++;
+        }
+        updateCalendar();
+      });
+      
+      // OK button handler
+      $picker.find('.btn-ok').on('click', () => {
+        const hour = parseInt($picker.find('.hour-input').val()) || 0;
+        const minute = parseInt($picker.find('.minute-input').val()) || 0;
+        
+        const jalaliStr = `${formatJalaliDate(currentJalali.jy, currentJalali.jm, currentJalali.jd)} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        $input.val(jalaliStr);
+        
+        // Convert to Gregorian for storage
+        const gregorian = jToG(currentJalali.jy, currentJalali.jm, currentJalali.jd);
+        const gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+        me.set_value(gregorianStr);
+        
+        $picker.hide();
+      });
+      
+      // Cancel button handler
+      $picker.find('.btn-cancel').on('click', () => {
+        $picker.hide();
+      });
+      
+      // Show picker on input click
+      $input.on('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Set current month to input value if exists
+        const inputValue = $input.val();
+        if (inputValue) {
+          const parts = inputValue.split(' ');
+          if (parts.length === 2) {
+            const jalali = parseJalaliDate(parts[0]);
+            if (jalali) {
+              currentJalali = { jy: jalali.jy, jm: jalali.jm, jd: jalali.jd };
+            }
+            
+            const timeParts = parts[1].split(':');
+            if (timeParts.length === 2) {
+              selectedTime.hour = parseInt(timeParts[0]) || 0;
+              selectedTime.minute = parseInt(timeParts[1]) || 0;
+            }
+          }
+        }
+        
+        updateCalendar();
+        
+        // Position picker
+        const inputRect = $input[0].getBoundingClientRect();
+        $picker.css({
+          position: 'fixed',
+          top: inputRect.bottom + window.scrollY + 5,
+          left: inputRect.left + window.scrollX,
+          display: 'block'
+        });
+      });
+      
+      // Hide picker when clicking outside
+      $(document).on('click', (e) => {
+        if (!$(e.target).closest('.jalali-datetime-picker, .form-control').length) {
+          $picker.hide();
+        }
+      });
+      
+      // Initialize picker
+      updateCalendar();
+    }
+
+    set_formatted_input(value) {
+      try {
+        const r = super.set_formatted_input(value);
+        
+        // Convert Gregorian to Jalali for display
+        if (value) {
+          const gregorianDate = new Date(value + 'Z');
+          const jalali = gToJ(gregorianDate);
+          const hh = String(gregorianDate.getHours()).padStart(2, "0");
+          const mm = String(gregorianDate.getMinutes()).padStart(2, "0");
+          const jalaliStr = `${formatJalaliDate(jalali.jy, jalali.jm, jalali.jd)} ${hh}:${mm}`;
+          this.$input.val(jalaliStr);
+        }
+        
+        return r;
+      } catch(e) {
+        return super.set_formatted_input(value);
+      }
+    }
+  }
+
+  frappe.ui.form.ControlDate = JalaliControlDate;
+  frappe.ui.form.ControlDatetime = JalaliControlDatetime;
+  console.log("ControlDate & ControlDatetime patched for Jalali");
+}
+
+// Call overrideControlsWhenReady only if jalaliEnabled is true
+overrideControlsWhenReady();
+
+})(); // End of async IIFE
+
+
