@@ -112,53 +112,5 @@ frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
 
-# Let's try a different approach - override the data processing in export_query directly
-def export_query_with_jalali():
-    """Override export_query to process data with Jalali dates"""
-    from frappe.desk.reportview import export_query as original_export_query
-    
-    # We need to intercept the data before it goes to make_xlsx
-    # Let's monkey patch make_xlsx temporarily
-    import frappe.utils.xlsxutils
-    
-    # Store original make_xlsx
-    original_make_xlsx = frappe.utils.xlsxutils.make_xlsx
-    
-    def make_xlsx_with_jalali(data, sheet_name, wb=None, column_widths=None):
-        if is_jalali_enabled():
-            # Convert datetime objects to Jalali strings
-            converted_data = []
-            for row in data:
-                converted_row = []
-                for item in row:
-                    if isinstance(item, datetime.datetime):
-                        converted_row.append(format_datetime(item))
-                    elif isinstance(item, datetime.date):
-                        converted_row.append(formatdate(item))
-                    else:
-                        converted_row.append(item)
-                converted_data.append(converted_row)
-            return original_make_xlsx(converted_data, sheet_name, wb, column_widths)
-        else:
-            return original_make_xlsx(data, sheet_name, wb, column_widths)
-    
-    # Temporarily replace make_xlsx
-    frappe.utils.xlsxutils.make_xlsx = make_xlsx_with_jalali
-    
-    try:
-        # Call the original export_query
-        result = original_export_query()
-        return result
-    finally:
-        # Restore original make_xlsx
-        frappe.utils.xlsxutils.make_xlsx = original_make_xlsx
-
-# Monkey patch export_query function
-def patch_export_query():
-    """Patch export_query function for Jalali support"""
-    import frappe.desk.reportview
-    frappe.desk.reportview.export_query = export_query_with_jalali
-    print("export_query patched for Jalali support")
-
-# Apply the patch
-patch_export_query()
+# Simple approach: Just rely on the formatdate and format_datetime overrides
+# The make_xlsx function should use these overridden functions automatically
