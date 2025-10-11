@@ -116,65 +116,47 @@ frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
 
-# Override reportview export_query to process data before make_xlsx
-def export_query_jalali():
-    """Override export_query to convert datetime objects to Jalali strings"""
-    from frappe.desk.reportview import export_query as original_export_query
-    
-    # We need to intercept and modify the data before it goes to make_xlsx
-    # Let's temporarily patch make_xlsx during this call
-    import frappe.utils.xlsxutils
-    
-    # Store original make_xlsx
-    original_make_xlsx = frappe.utils.xlsxutils.make_xlsx
-    
-    def make_xlsx_with_jalali_conversion(data, sheet_name, wb=None, column_widths=None):
-        if is_jalali_enabled():
-            print(f"Converting {len(data)} rows to Jalali format...")
-            # Convert datetime objects to Jalali strings
-            converted_data = []
-            for row_idx, row in enumerate(data):
-                converted_row = []
-                for col_idx, item in enumerate(row):
-                    if isinstance(item, datetime.datetime):
-                        jalali_str = format_datetime(item)
-                        print(f"Row {row_idx}, Col {col_idx}: {item} -> {jalali_str}")
-                        converted_row.append(jalali_str)
-                    elif isinstance(item, datetime.date):
-                        jalali_str = formatdate(item)
-                        print(f"Row {row_idx}, Col {col_idx}: {item} -> {jalali_str}")
-                        converted_row.append(jalali_str)
-                    else:
-                        converted_row.append(item)
-                converted_data.append(converted_row)
-            return original_make_xlsx(converted_data, sheet_name, wb, column_widths)
-        else:
-            return original_make_xlsx(data, sheet_name, wb, column_widths)
-    
-    # Temporarily replace make_xlsx
-    frappe.utils.xlsxutils.make_xlsx = make_xlsx_with_jalali_conversion
-    
-    try:
-        # Call the original export_query
-        result = original_export_query()
-        return result
-    finally:
-        # Restore original make_xlsx
-        frappe.utils.xlsxutils.make_xlsx = original_make_xlsx
+# Override make_xlsx directly to convert datetime objects to Jalali strings
+def make_xlsx_jalali(data, sheet_name, wb=None, column_widths=None):
+    """Override make_xlsx to convert datetime objects to Jalali strings"""
+    if is_jalali_enabled():
+        print(f"Converting {len(data)} rows to Jalali format...")
+        # Convert datetime objects to Jalali strings
+        converted_data = []
+        for row_idx, row in enumerate(data):
+            converted_row = []
+            for col_idx, item in enumerate(row):
+                if isinstance(item, datetime.datetime):
+                    jalali_str = format_datetime(item)
+                    print(f"Row {row_idx}, Col {col_idx}: {item} -> {jalali_str}")
+                    converted_row.append(jalali_str)
+                elif isinstance(item, datetime.date):
+                    jalali_str = formatdate(item)
+                    print(f"Row {row_idx}, Col {col_idx}: {item} -> {jalali_str}")
+                    converted_row.append(jalali_str)
+                else:
+                    converted_row.append(item)
+            converted_data.append(converted_row)
+        return original_make_xlsx(converted_data, sheet_name, wb, column_widths)
+    else:
+        return original_make_xlsx(data, sheet_name, wb, column_widths)
+
+# Store original make_xlsx
+import frappe.utils.xlsxutils
+original_make_xlsx = frappe.utils.xlsxutils.make_xlsx
 
 def setup_jalali_formatters():
     """Setup Jalali formatters on each request"""
     print("Setting up Jalali formatters on request...")
     
-    # Apply the patch only when needed
+    # Apply make_xlsx patch only when needed
     try:
-        import frappe.desk.reportview
-        if not hasattr(frappe.desk.reportview, '_jalali_patched'):
-            frappe.desk.reportview.export_query = export_query_jalali
-            frappe.desk.reportview._jalali_patched = True
-            print("export_query patched for Jalali support")
+        if not hasattr(frappe.utils.xlsxutils, '_jalali_patched'):
+            frappe.utils.xlsxutils.make_xlsx = make_xlsx_jalali
+            frappe.utils.xlsxutils._jalali_patched = True
+            print("make_xlsx patched for Jalali support")
     except Exception as e:
-        print(f"Error patching export_query: {e}")
+        print(f"Error patching make_xlsx: {e}")
     
     # Just ensure our overrides are active
     print(f"formatdate override: {frappe.utils.formatdate}")
