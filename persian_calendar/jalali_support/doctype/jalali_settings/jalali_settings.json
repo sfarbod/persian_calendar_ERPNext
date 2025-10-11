@@ -8,7 +8,6 @@
   "jalali_calendar_section",
   "enable_jalali",
   "default_calendar",
-  "user_calendar",
   "week_start",
   "week_end"
  ],
@@ -30,13 +29,6 @@
    "fieldtype": "Select",
    "label": "Default Calendar",
    "options": "Gregorian\nJalali"
-  },
-  {
-   "default": "System Default",
-   "fieldname": "user_calendar",
-   "fieldtype": "Select",
-   "label": "User Calendar Preference",
-   "options": "System Default\nGregorian\nJalali"
   },
   {
    "default": "6",

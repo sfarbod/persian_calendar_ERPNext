@@ -1266,7 +1266,7 @@
               console.log("Original values:", {
                 enable_jalali: frm.doc.enable_jalali,
                 default_calendar: frm.doc.default_calendar,
-                computation_priority: frm.doc.computation_priority,
+                user_calendar: frm.doc.user_calendar,
                 week_start: frm.doc.week_start,
                 week_end: frm.doc.week_end
               });
@@ -1280,4 +1280,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.BK7FJ2VL.js.map
+//# sourceMappingURL=jalali_support.bundle.3NITR4OK.js.map

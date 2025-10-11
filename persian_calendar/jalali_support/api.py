@@ -32,14 +32,14 @@ def convert_to_jalali(date_str: str) -> dict:
 @frappe.whitelist(allow_guest=False)
 def get_effective_calendar(user: str = None) -> dict:
     """
-    تقویم مؤثر بر اساس منطق 4 فیلد:
+    تقویم مؤثر بر اساس منطق 3 فیلد + User Settings:
     1. enable_jalali = False → همه چیز میلادی
-    2. user_calendar = "System Default" → از default_calendar پیروی می‌کند
-    3. user_calendar = "Jalali" → همیشه شمسی
-    4. user_calendar = "Gregorian" → همیشه میلادی
+    2. user_calendar_preference = "System Default" → از default_calendar پیروی می‌کند
+    3. user_calendar_preference = "Jalali" → همیشه شمسی
+    4. user_calendar_preference = "Gregorian" → همیشه میلادی
     """
     from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import JalaliSettings
-    return JalaliSettings.get_effective_calendar()
+    return JalaliSettings.get_effective_calendar(user)
 
 @frappe.whitelist(allow_guest=False)
 def is_jalali_enabled() -> bool:
@@ -66,7 +66,6 @@ def get_all_settings() -> dict:
         "raw_settings": {
             "enabled": settings.enabled,
             "default_calendar": settings.default_calendar,
-            "user_calendar": settings.user_calendar,
             "week_start": settings.week_start,
             "week_end": settings.week_end
         },

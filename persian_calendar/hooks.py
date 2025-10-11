@@ -263,3 +263,8 @@ except Exception as e:
 # Request Events
 # ----------------
 before_request = ["persian_calendar.jalali_support.formatters.setup_jalali_formatters"]
+
+# Install/Uninstall Events
+# ------------------------
+after_install = ["persian_calendar.jalali_support.doctype.custom_field.calendar_preference.create_calendar_preference_field"]
+after_uninstall = ["persian_calendar.jalali_support.doctype.custom_field.calendar_preference.remove_calendar_preference_field"]

@@ -19,9 +19,6 @@ class JalaliSettings(Document):
         # default_calendar معتبر باشه
         if self.default_calendar and self.default_calendar not in ("Jalali", "Gregorian"):
             frappe.throw("مقدار Default Calendar باید «Jalali» یا «Gregorian» باشد.")
-        # user_calendar معتبر باشه
-        if self.user_calendar and self.user_calendar not in ("System Default", "Jalali", "Gregorian"):
-            frappe.throw("مقدار User Calendar باید «System Default»، «Jalali» یا «Gregorian» باشد.")
 
     def after_save(self):
         """
@@ -39,14 +36,13 @@ class JalaliSettings(Document):
     @staticmethod
     def get_settings():
         """
-        برمی‌گرداند تنظیمات جاری به صورت دیکشن با کلیدهای: enabled, default_calendar, user_calendar, week_start, week_end
+        برمی‌گرداند تنظیمات جاری به صورت دیکشن با کلیدهای: enabled, default_calendar, week_start, week_end
         """
         doc = frappe.get_single("Jalali Settings")
 
         enabled = True if doc.enable_jalali else False
         
         default_calendar = doc.default_calendar if doc.default_calendar in ("Jalali", "Gregorian") else "Jalali"
-        user_calendar = doc.user_calendar if doc.user_calendar in ("System Default", "Jalali", "Gregorian") else "System Default"
 
         week_start = doc.week_start if (doc.week_start is not None) else 6
         week_end = doc.week_end if (doc.week_end is not None) else 5
@@ -54,19 +50,18 @@ class JalaliSettings(Document):
         return frappe._dict(
             enabled = enabled,
             default_calendar = default_calendar,
-            user_calendar = user_calendar,
             week_start = week_start,
             week_end = week_end
         )
     
     @staticmethod
-    def get_effective_calendar():
+    def get_effective_calendar(user=None):
         """
-        محاسبه تقویم مؤثر بر اساس منطق 4 فیلد:
+        محاسبه تقویم مؤثر بر اساس منطق 3 فیلد + User Settings:
         1. enable_jalali = False → همه چیز میلادی
-        2. user_calendar = "System Default" → از default_calendar پیروی می‌کند
-        3. user_calendar = "Jalali" → همیشه شمسی
-        4. user_calendar = "Gregorian" → همیشه میلادی
+        2. user_calendar_preference = "System Default" → از default_calendar پیروی می‌کند
+        3. user_calendar_preference = "Jalali" → همیشه شمسی
+        4. user_calendar_preference = "Gregorian" → همیشه میلادی
         """
         settings = JalaliSettings.get_settings()
         
@@ -78,17 +73,27 @@ class JalaliSettings(Document):
                 "week_end": 6     # شنبه
             }
         
-        # مرحله 2: تعیین تقویم نمایش بر اساس user_calendar
-        if settings.user_calendar == "System Default":
+        # مرحله 2: دریافت تنظیمات کاربر از User Settings
+        user_calendar_preference = "System Default"  # Default value
+        
+        if user or frappe.session.user:
+            try:
+                user_doc = frappe.get_doc("User", user or frappe.session.user)
+                user_calendar_preference = getattr(user_doc, 'calendar_preference', 'System Default')
+            except:
+                user_calendar_preference = "System Default"
+        
+        # مرحله 3: تعیین تقویم نمایش بر اساس user_calendar_preference
+        if user_calendar_preference == "System Default":
             display_calendar = settings.default_calendar
-        elif settings.user_calendar == "Jalali":
+        elif user_calendar_preference == "Jalali":
             display_calendar = "Jalali"
-        elif settings.user_calendar == "Gregorian":
+        elif user_calendar_preference == "Gregorian":
             display_calendar = "Gregorian"
         else:
             display_calendar = settings.default_calendar
         
-        # مرحله 3: week_start فقط اگر enable_jalali = True باشد اعمال می‌شود
+        # مرحله 4: week_start فقط اگر enable_jalali = True باشد اعمال می‌شود
         return {
             "display_calendar": display_calendar,
             "week_start": settings.week_start,
