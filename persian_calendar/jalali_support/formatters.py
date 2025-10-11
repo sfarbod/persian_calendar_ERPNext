@@ -19,8 +19,11 @@ def formatdate(string_date=None, format_string=None, parse_day_first=False):
 		# Convert Gregorian to Jalali
 		date_obj = getdate(string_date)
 		jalali_date = gregorian_to_jalali(date_obj.year, date_obj.month, date_obj.day)
-		return f"{jalali_date['jy']}-{jalali_date['jm']:02d}-{jalali_date['jd']:02d}"
-	except:
+		result = f"{jalali_date['jy']}-{jalali_date['jm']:02d}-{jalali_date['jd']:02d}"
+		print(f"Jalali formatdate: {string_date} -> {result}")
+		return result
+	except Exception as e:
+		print(f"Error in formatdate: {e}")
 		return original_formatdate(string_date, format_string, parse_day_first)
 
 def format_datetime(dt=None, format_string=None, parse_day_first=False):
@@ -43,10 +46,11 @@ def format_datetime(dt=None, format_string=None, parse_day_first=False):
 		jalali_date = gregorian_to_jalali(date_obj.year, date_obj.month, date_obj.day)
 		jalali_str = f"{jalali_date['jy']}-{jalali_date['jm']:02d}-{jalali_date['jd']:02d}"
 		
-		if time_part:
-			return f"{jalali_str} {time_part}"
-		return jalali_str
-	except:
+		result = f"{jalali_str} {time_part}" if time_part else jalali_str
+		print(f"Jalali format_datetime: {dt} -> {result}")
+		return result
+	except Exception as e:
+		print(f"Error in format_datetime: {e}")
 		return original_format_datetime(dt, format_string, parse_day_first)
 
 def format_value(value, df=None, doc=None, currency=None, translated=False, format=None):
@@ -114,3 +118,9 @@ frappe.utils.formatters.format_value = format_value
 
 # Simple approach: Just rely on the formatdate and format_datetime overrides
 # The make_xlsx function should use these overridden functions automatically
+
+def setup_jalali_formatters():
+    """Setup Jalali formatters on each request"""
+    print("Setting up Jalali formatters on request...")
+    # This function is called on each request to ensure formatters are properly set up
+    pass

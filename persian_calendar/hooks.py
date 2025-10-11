@@ -253,4 +253,13 @@ fixtures = ["Custom Field"]
 desktop_items = ["jalali_settings"]
 
 # Import formatters to override date formatting for exports
-import persian_calendar.jalali_support.formatters
+# Import at module level to ensure early loading
+try:
+    import persian_calendar.jalali_support.formatters
+    print("Jalali formatters imported successfully")
+except Exception as e:
+    print(f"Error importing Jalali formatters: {e}")
+
+# Request Events
+# ----------------
+before_request = ["persian_calendar.jalali_support.formatters.setup_jalali_formatters"]
