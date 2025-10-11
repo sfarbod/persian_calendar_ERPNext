@@ -162,19 +162,20 @@ def export_query_jalali():
         # Restore original make_xlsx
         frappe.utils.xlsxutils.make_xlsx = original_make_xlsx
 
-# Monkey patch export_query
-def patch_export_query():
-    """Patch export_query function"""
-    import frappe.desk.reportview
-    frappe.desk.reportview.export_query = export_query_jalali
-    print("export_query patched for Jalali support")
-
-# Apply the patch
-patch_export_query()
-
 def setup_jalali_formatters():
     """Setup Jalali formatters on each request"""
     print("Setting up Jalali formatters on request...")
+    
+    # Apply the patch only when needed
+    try:
+        import frappe.desk.reportview
+        if not hasattr(frappe.desk.reportview, '_jalali_patched'):
+            frappe.desk.reportview.export_query = export_query_jalali
+            frappe.desk.reportview._jalali_patched = True
+            print("export_query patched for Jalali support")
+    except Exception as e:
+        print(f"Error patching export_query: {e}")
+    
     # Just ensure our overrides are active
     print(f"formatdate override: {frappe.utils.formatdate}")
     print(f"format_datetime override: {frappe.utils.format_datetime}")
