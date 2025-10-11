@@ -262,7 +262,10 @@ except Exception as e:
 
 # Request Events
 # ----------------
-before_request = ["persian_calendar.jalali_support.formatters.setup_jalali_formatters"]
+before_request = [
+    "persian_calendar.jalali_support.formatters.setup_jalali_formatters",
+    "persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override"
+]
 
 # Install/Uninstall Events
 # ------------------------
