@@ -112,43 +112,4 @@ frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
 
-# Store original make_xlsx function before patching
-_original_make_xlsx = None
-
-# Override make_xlsx to handle Jalali dates
-def make_xlsx_jalali(data, sheet_name, wb=None, column_widths=None):
-    """Override make_xlsx to convert dates to Jalali format"""
-    global _original_make_xlsx
-    
-    # Import and store original function only once
-    if _original_make_xlsx is None:
-        from frappe.utils.xlsxutils import make_xlsx
-        _original_make_xlsx = make_xlsx
-    
-    if not is_jalali_enabled():
-        return _original_make_xlsx(data, sheet_name, wb, column_widths)
-    
-    # Convert datetime objects to Jalali strings before passing to original function
-    converted_data = []
-    for row in data:
-        converted_row = []
-        for item in row:
-            if isinstance(item, datetime.datetime):
-                converted_row.append(format_datetime(item))
-            elif isinstance(item, datetime.date):
-                converted_row.append(formatdate(item))
-            else:
-                converted_row.append(item)
-        converted_data.append(converted_row)
-    
-    return _original_make_xlsx(converted_data, sheet_name, wb, column_widths)
-
-# Monkey patch make_xlsx function
-def patch_xlsx_functions():
-    """Patch xlsx functions for Jalali support"""
-    import frappe.utils.xlsxutils
-    frappe.utils.xlsxutils.make_xlsx = make_xlsx_jalali
-    print("make_xlsx patched for Jalali support")
-
-# Apply the patch
-patch_xlsx_functions()
+# No additional patching needed - the formatdate and format_datetime overrides should be sufficient
