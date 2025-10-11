@@ -112,4 +112,47 @@ frappe.utils.formatdate = formatdate
 frappe.utils.format_datetime = format_datetime
 frappe.utils.formatters.format_value = format_value
 
-# No additional patching needed - the formatdate and format_datetime overrides should be sufficient
+# Store original make_xlsx function safely
+_original_make_xlsx_safe = None
+
+def get_original_make_xlsx():
+    """Get the original make_xlsx function safely"""
+    global _original_make_xlsx_safe
+    if _original_make_xlsx_safe is None:
+        # Import the original module and get the function before any patching
+        import importlib
+        xlsxutils_module = importlib.import_module('frappe.utils.xlsxutils')
+        _original_make_xlsx_safe = xlsxutils_module.make_xlsx
+    return _original_make_xlsx_safe
+
+# Override make_xlsx to handle Jalali dates safely
+def make_xlsx_jalali_safe(data, sheet_name, wb=None, column_widths=None):
+    """Override make_xlsx to convert dates to Jalali format safely"""
+    
+    if not is_jalali_enabled():
+        return get_original_make_xlsx()(data, sheet_name, wb, column_widths)
+    
+    # Convert datetime objects to Jalali strings before passing to original function
+    converted_data = []
+    for row in data:
+        converted_row = []
+        for item in row:
+            if isinstance(item, datetime.datetime):
+                converted_row.append(format_datetime(item))
+            elif isinstance(item, datetime.date):
+                converted_row.append(formatdate(item))
+            else:
+                converted_row.append(item)
+        converted_data.append(converted_row)
+    
+    return get_original_make_xlsx()(converted_data, sheet_name, wb, column_widths)
+
+# Monkey patch make_xlsx function safely
+def patch_make_xlsx_safely():
+    """Patch make_xlsx function safely for Jalali support"""
+    import frappe.utils.xlsxutils
+    frappe.utils.xlsxutils.make_xlsx = make_xlsx_jalali_safe
+    print("make_xlsx patched safely for Jalali support")
+
+# Apply the patch
+patch_make_xlsx_safely()
