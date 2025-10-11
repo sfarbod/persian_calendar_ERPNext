@@ -86,16 +86,21 @@
       console.log("Jalali calendar is disabled, skipping datepicker overrides");
       return;
     }
-    let FIRST_DAY = 6;
+    let EFFECTIVE_CALENDAR = {
+      display_calendar: "Jalali",
+      week_start: 6,
+      week_end: 5
+    };
     try {
-      const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_week_bounds" });
-      if (r && r.message && r.message.week_start != null) {
-        FIRST_DAY = r.message.week_start;
+      const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
+      if (r && r.message) {
+        EFFECTIVE_CALENDAR = r.message;
+        console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
       }
-      console.log("Week start day:", FIRST_DAY);
     } catch (e) {
-      console.log("Error fetching week bounds:", e);
+      console.log("Error fetching effective calendar:", e);
     }
+    let FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
     function gToJ(gDate) {
       return toJalali(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
     }
@@ -914,6 +919,10 @@
       const BaseControlDate = frappe.ui.form.ControlDate;
       class JalaliControlDate extends BaseControlDate {
         make_input() {
+          if (EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
+            super.make_input();
+            return;
+          }
           super.make_input();
           this.replaceWithJalaliDatepicker();
         }
@@ -1271,4 +1280,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.3XMK4VOF.js.map
+//# sourceMappingURL=jalali_support.bundle.BK7FJ2VL.js.map

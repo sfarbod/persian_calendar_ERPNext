@@ -8,7 +8,7 @@
   "jalali_calendar_section",
   "enable_jalali",
   "default_calendar",
-  "computation_priority",
+  "user_calendar",
   "week_start",
   "week_end"
  ],
@@ -32,17 +32,17 @@
    "options": "Gregorian\nJalali"
   },
   {
+   "default": "System Default",
+   "fieldname": "user_calendar",
+   "fieldtype": "Select",
+   "label": "User Calendar Preference",
+   "options": "System Default\nGregorian\nJalali"
+  },
+  {
    "default": "6",
    "fieldname": "week_start",
    "fieldtype": "Int",
    "label": "Week Start (0=Sun...6=Sat)"
-  },
-  {
-   "default": "Jalali",
-   "fieldname": "computation_priority",
-   "fieldtype": "Select",
-   "label": "Computation Priority",
-   "options": "Gregorian\nJalali"
   },
   {
    "default": "5",

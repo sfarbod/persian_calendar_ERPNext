@@ -19,17 +19,25 @@
     return;
   }
 
-  // Get week bounds
-  let FIRST_DAY = 6;
+  // Get effective calendar settings
+  let EFFECTIVE_CALENDAR = {
+    display_calendar: "Jalali",
+    week_start: 6,
+    week_end: 5
+  };
+  
   try {
-    const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_week_bounds" });
-    if (r && r.message && r.message.week_start != null) {
-      FIRST_DAY = r.message.week_start;
+    const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
+    if (r && r.message) {
+      EFFECTIVE_CALENDAR = r.message;
+      console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
     }
-    console.log("Week start day:", FIRST_DAY);
   } catch(e) {
-    console.log("Error fetching week bounds:", e);
+    console.log("Error fetching effective calendar:", e);
   }
+
+  // Legacy FIRST_DAY for backward compatibility
+  let FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
 
   // Helper functions
   function gToJ(gDate) {
@@ -1028,6 +1036,13 @@ class JalaliDatepicker {
 
     class JalaliControlDate extends BaseControlDate {
       make_input() {
+        // Check if we should use Jalali datepicker based on effective calendar
+        if (EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
+          // Use default Frappe datepicker
+          super.make_input();
+          return;
+        }
+        
         // Call the parent method to get the standard Frappe input structure
         super.make_input();
         

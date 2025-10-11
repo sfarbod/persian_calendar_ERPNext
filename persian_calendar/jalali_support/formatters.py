@@ -12,6 +12,11 @@ def formatdate(string_date=None, format_string=None, parse_day_first=False):
 	if not is_jalali_enabled():
 		return original_formatdate(string_date, format_string, parse_day_first)
 	
+	# Check effective display calendar
+	display_calendar = get_effective_display_calendar()
+	if display_calendar == "Gregorian":
+		return original_formatdate(string_date, format_string, parse_day_first)
+	
 	if not string_date:
 		return ""
 	
@@ -29,6 +34,11 @@ def formatdate(string_date=None, format_string=None, parse_day_first=False):
 def format_datetime(dt=None, format_string=None, parse_day_first=False):
 	"""Override format_datetime to show Jalali dates when Jalali calendar is enabled"""
 	if not is_jalali_enabled():
+		return original_format_datetime(dt, format_string, parse_day_first)
+	
+	# Check effective display calendar
+	display_calendar = get_effective_display_calendar()
+	if display_calendar == "Gregorian":
 		return original_format_datetime(dt, format_string, parse_day_first)
 	
 	if not dt:
@@ -58,6 +68,11 @@ def format_value(value, df=None, doc=None, currency=None, translated=False, form
 	if not is_jalali_enabled():
 		return original_format_value(value, df, doc, currency, translated, format)
 	
+	# Check effective display calendar
+	display_calendar = get_effective_display_calendar()
+	if display_calendar == "Gregorian":
+		return original_format_value(value, df, doc, currency, translated, format)
+	
 	if df and df.get("fieldtype") in ("Date", "Datetime"):
 		if df.get("fieldtype") == "Date":
 			return formatdate(value)
@@ -69,9 +84,20 @@ def format_value(value, df=None, doc=None, currency=None, translated=False, form
 def is_jalali_enabled():
 	"""Check if Jalali calendar is enabled"""
 	try:
-		return frappe.db.get_single_value("Jalali Settings", "enable_jalali") or False
+		from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import JalaliSettings
+		settings = JalaliSettings.get_settings()
+		return settings.enabled
 	except:
 		return False
+
+def get_effective_display_calendar():
+	"""Get the effective display calendar based on 4-field logic"""
+	try:
+		from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import JalaliSettings
+		effective = JalaliSettings.get_effective_calendar()
+		return effective.get("display_calendar", "Jalali")
+	except:
+		return "Jalali"
 
 def gregorian_to_jalali(gy, gm, gd):
 	"""Convert Gregorian date to Jalali date"""
