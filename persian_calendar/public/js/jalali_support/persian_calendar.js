@@ -1352,4 +1352,43 @@ class JalaliDatepicker {
   // Start overriding
   overrideControlsWhenReady();
 
+  // Override Fiscal Year defaults to Jalali year boundaries when enabled
+  try {
+    frappe.ui.form.on('Fiscal Year', {
+      onload: function(frm) {
+        try {
+          if (!frm.doc.__islocal) return; // only for new docs
+          if (!jalaliEnabled) return;
+          if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === 'Gregorian') return;
+
+          // If user already set a start date, don't override
+          if (frm.doc.year_start_date) return;
+
+          // Determine current Jalali year from today
+          const todayG = new Date();
+          const todayJ = gToJ(todayG);
+
+          const jy = todayJ.jy;
+          // Start: jy-01-01 (Jalali) => Gregorian
+          const startG = jToG(jy, 1, 1);
+          const startStr = `${startG.gy}-${String(startG.gm).padStart(2,'0')}-${String(startG.gd).padStart(2,'0')}`;
+
+          // End: next jy's 01-01 minus one day
+          const nextStartG = jToG(jy + 1, 1, 1);
+          const nextStartDate = new Date(nextStartG.gy, nextStartG.gm - 1, nextStartG.gd);
+          const endDate = new Date(nextStartDate.getTime() - 24 * 60 * 60 * 1000);
+          const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
+
+          frm.set_value('year_start_date', startStr);
+          // If not short year, Frappe's handler sets end automatically; force set to Jalali end regardless
+          frm.set_value('year_end_date', endStr);
+        } catch (e) {
+          console.log('Error setting Jalali Fiscal Year defaults:', e);
+        }
+      }
+    });
+  } catch (e) {
+    console.log('Unable to attach Fiscal Year onload override:', e);
+  }
+
 })();
