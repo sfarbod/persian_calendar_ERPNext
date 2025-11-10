@@ -91,12 +91,15 @@ def is_jalali_enabled():
 		return False
 
 def get_effective_display_calendar():
-	"""Get the effective display calendar based on 4-field logic"""
+	"""Get the effective display calendar based on 4-field logic for current user"""
 	try:
 		from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import JalaliSettings
-		effective = JalaliSettings.get_effective_calendar()
+		# Always get effective calendar for current session user
+		# get_effective_calendar() without user parameter will use frappe.session.user
+		effective = JalaliSettings.get_effective_calendar(user=None)  # None means use session user
 		return effective.get("display_calendar", "Jalali")
-	except:
+	except Exception as e:
+		print(f"Error in get_effective_display_calendar: {e}")
 		return "Jalali"
 
 def gregorian_to_jalali(gy, gm, gd):

@@ -1391,4 +1391,25 @@ class JalaliDatepicker {
     console.log('Unable to attach Fiscal Year onload override:', e);
   }
 
+  // Listen for User form calendar_preference changes and refresh page after save
+  // Only refresh if user is editing their own profile (My Settings)
+  try {
+    frappe.ui.form.on('User', {
+      after_save: function(frm) {
+        // Check if calendar_preference field exists and if user is editing their own profile
+        if (frm.doc.calendar_preference !== undefined && 
+            frm.doc.name === frappe.session.user) {
+          console.log('User calendar_preference changed to:', frm.doc.calendar_preference);
+          console.log('Reloading page to apply new calendar settings...');
+          // Reload page to apply new calendar settings
+          setTimeout(function() {
+            window.location.reload();
+          }, 500);
+        }
+      }
+    });
+  } catch (e) {
+    console.log('Unable to attach User form handler:', e);
+  }
+
 })();

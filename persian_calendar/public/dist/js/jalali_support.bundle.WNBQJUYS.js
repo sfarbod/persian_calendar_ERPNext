@@ -1181,6 +1181,21 @@
     } catch (e) {
       console.log("Unable to attach Fiscal Year onload override:", e);
     }
+    try {
+      frappe.ui.form.on("User", {
+        after_save: function(frm) {
+          if (frm.doc.calendar_preference !== void 0 && frm.doc.name === frappe.session.user) {
+            console.log("User calendar_preference changed to:", frm.doc.calendar_preference);
+            console.log("Reloading page to apply new calendar settings...");
+            setTimeout(function() {
+              window.location.reload();
+            }, 500);
+          }
+        }
+      });
+    } catch (e) {
+      console.log("Unable to attach User form handler:", e);
+    }
   })();
 
   // ../persian_calendar/persian_calendar/public/js/jalali_support/formatters.js
@@ -1284,4 +1299,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.73AUVJMN.js.map
+//# sourceMappingURL=jalali_support.bundle.WNBQJUYS.js.map

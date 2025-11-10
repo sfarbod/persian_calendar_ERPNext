@@ -74,11 +74,24 @@ class JalaliSettings(Document):
         # مرحله 2: دریافت تنظیمات کاربر از User Settings
         user_calendar_preference = "System Default"  # Default value
         
-        if user or frappe.session.user:
+        # Determine which user to check
+        target_user = user
+        if not target_user:
+            # If no user specified, use current session user
+            if hasattr(frappe, 'session') and hasattr(frappe.session, 'user'):
+                target_user = frappe.session.user
+            elif hasattr(frappe.local, 'session'):
+                target_user = getattr(frappe.local.session, 'user', None)
+            else:
+                target_user = None
+        
+        if target_user and target_user != "Guest":
             try:
-                user_doc = frappe.get_doc("User", user or frappe.session.user)
-                user_calendar_preference = getattr(user_doc, 'calendar_preference', 'System Default')
-            except:
+                # Use get_value to avoid cache issues and get fresh data from DB
+                user_calendar_preference = frappe.db.get_value("User", target_user, "calendar_preference") or "System Default"
+            except Exception as e:
+                # If user doesn't exist or error, use System Default
+                frappe.log_error(f"Error getting user calendar preference for {target_user}: {e}", "JalaliSettings")
                 user_calendar_preference = "System Default"
         
         # مرحله 3: تعیین تقویم نمایش بر اساس user_calendar_preference
