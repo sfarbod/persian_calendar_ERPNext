@@ -1037,8 +1037,11 @@ class JalaliDatepicker {
     class JalaliControlDate extends BaseControlDate {
       make_input() {
         // Check if we should use Jalali datepicker based on effective calendar
-        if (EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
-          // Use default Frappe datepicker
+        // Store display_calendar in instance for later use
+        this.display_calendar = (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar) || "Jalali";
+        
+        if (this.display_calendar === "Gregorian") {
+          // Use default Frappe datepicker - don't create JalaliDatepicker
           super.make_input();
           return;
         }
@@ -1254,11 +1257,25 @@ class JalaliDatepicker {
 
       set_formatted_input(value) {
         try {
+          // Check display calendar from instance or global
+          const display_calendar = this.display_calendar || 
+            (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar) || 
+            "Jalali";
+          
+          // Check if we should use Gregorian calendar (no conversion)
+          if (display_calendar === "Gregorian") {
+            // Use default Frappe behavior - show Gregorian dates as-is
+            // Don't convert to Jalali
+            console.log('set_formatted_input - Using Gregorian calendar, no conversion');
+            return super.set_formatted_input(value);
+          }
+
+          // Jalali calendar - convert Gregorian to Jalali for display
           const r = super.set_formatted_input(value);
 
-          // Convert Gregorian to Jalali for display
+          // Convert Gregorian to Jalali for display (only when Jalali is enabled)
           if (value) {
-            console.log('set_formatted_input - Input value:', value);
+            console.log('set_formatted_input - Input value:', value, 'Display calendar:', display_calendar);
             
             // Parse the date more carefully
             let gregorianDate;

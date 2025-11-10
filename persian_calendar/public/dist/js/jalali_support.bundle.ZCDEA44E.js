@@ -1083,9 +1083,12 @@
         }
         set_formatted_input(value) {
           try {
+            if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
+              return super.set_formatted_input(value);
+            }
             const r = super.set_formatted_input(value);
             if (value) {
-              console.log("set_formatted_input - Input value:", value);
+              console.log("set_formatted_input - Input value:", value, "Display calendar:", EFFECTIVE_CALENDAR.display_calendar);
               let gregorianDate;
               if (typeof value === "string") {
                 if (value.includes("T")) {
@@ -1299,4 +1302,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.WNBQJUYS.js.map
+//# sourceMappingURL=jalali_support.bundle.ZCDEA44E.js.map
