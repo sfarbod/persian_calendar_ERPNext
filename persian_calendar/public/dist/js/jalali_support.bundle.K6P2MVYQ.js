@@ -919,7 +919,8 @@
       const BaseControlDate = frappe.ui.form.ControlDate;
       class JalaliControlDate extends BaseControlDate {
         make_input() {
-          if (EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
+          this.display_calendar = EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar || "Jalali";
+          if (this.display_calendar === "Gregorian") {
             super.make_input();
             return;
           }
@@ -1083,12 +1084,14 @@
         }
         set_formatted_input(value) {
           try {
-            if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === "Gregorian") {
+            const display_calendar = this.display_calendar || EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar || "Jalali";
+            if (display_calendar === "Gregorian") {
+              console.log("set_formatted_input - Using Gregorian calendar, no conversion");
               return super.set_formatted_input(value);
             }
             const r = super.set_formatted_input(value);
             if (value) {
-              console.log("set_formatted_input - Input value:", value, "Display calendar:", EFFECTIVE_CALENDAR.display_calendar);
+              console.log("set_formatted_input - Input value:", value, "Display calendar:", display_calendar);
               let gregorianDate;
               if (typeof value === "string") {
                 if (value.includes("T")) {
@@ -1302,4 +1305,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.ZCDEA44E.js.map
+//# sourceMappingURL=jalali_support.bundle.K6P2MVYQ.js.map
