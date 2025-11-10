@@ -1150,6 +1150,37 @@
     removeAllAirDatepickerInstances();
     setInterval(removeAllAirDatepickerInstances, 1e3);
     overrideControlsWhenReady();
+    try {
+      frappe.ui.form.on("Fiscal Year", {
+        onload: function(frm) {
+          try {
+            if (!frm.doc.__islocal)
+              return;
+            if (!jalaliEnabled)
+              return;
+            if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === "Gregorian")
+              return;
+            if (frm.doc.year_start_date)
+              return;
+            const todayG = new Date();
+            const todayJ = gToJ(todayG);
+            const jy = todayJ.jy;
+            const startG = jToG(jy, 1, 1);
+            const startStr = `${startG.gy}-${String(startG.gm).padStart(2, "0")}-${String(startG.gd).padStart(2, "0")}`;
+            const nextStartG = jToG(jy + 1, 1, 1);
+            const nextStartDate = new Date(nextStartG.gy, nextStartG.gm - 1, nextStartG.gd);
+            const endDate = new Date(nextStartDate.getTime() - 24 * 60 * 60 * 1e3);
+            const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+            frm.set_value("year_start_date", startStr);
+            frm.set_value("year_end_date", endStr);
+          } catch (e) {
+            console.log("Error setting Jalali Fiscal Year defaults:", e);
+          }
+        }
+      });
+    } catch (e) {
+      console.log("Unable to attach Fiscal Year onload override:", e);
+    }
   })();
 
   // ../persian_calendar/persian_calendar/public/js/jalali_support/formatters.js
@@ -1280,4 +1311,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.3NITR4OK.js.map
+//# sourceMappingURL=jalali_support.bundle.JLJGCU2I.js.map

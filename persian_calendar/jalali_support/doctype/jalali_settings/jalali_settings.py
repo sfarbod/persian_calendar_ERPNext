@@ -22,16 +22,14 @@ class JalaliSettings(Document):
 
     def after_save(self):
         """
-        بعد از ذخیره تنظیمات، صفحه را reload کن تا تغییرات اعمال شود.
+        Silently reload page after saving settings (no message displayed).
         """
         # Check if this is a web request (not API call)
         if hasattr(frappe.local, 'request') and frappe.local.request:
-            # For web requests, redirect to reload the page
+            # For web requests, redirect to reload the page silently
             frappe.local.response["type"] = "redirect"
             frappe.local.response["location"] = frappe.local.request.url
-        else:
-            # For API calls, just show a message
-            frappe.msgprint("تنظیمات تقویم جلالی ذخیره شد. لطفاً صفحه را refresh کنید تا تغییرات اعمال شود.")
+        # For API calls, do nothing (no message)
 
     @staticmethod
     def get_settings():
