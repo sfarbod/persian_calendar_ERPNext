@@ -1271,37 +1271,10 @@
     function initAutoRefresh() {
       if (typeof frappe !== "undefined" && frappe.ui && frappe.ui.form) {
         frappe.ui.form.on("Jalali Settings", {
-          refresh: function(frm) {
-            frm.page.add_inner_button(__("Save & Reload"), function() {
-              frm.save().then(function() {
-                frappe.show_alert({
-                  message: __("\u062A\u0646\u0638\u06CC\u0645\u0627\u062A \u0630\u062E\u06CC\u0631\u0647 \u0634\u062F. \u0635\u0641\u062D\u0647 \u062F\u0631 \u062D\u0627\u0644 \u0628\u0627\u0631\u06AF\u0630\u0627\u0631\u06CC \u0645\u062C\u062F\u062F..."),
-                  indicator: "green"
-                });
-                setTimeout(function() {
-                  window.location.reload();
-                }, 1e3);
-              });
-            });
-          },
           after_save: function(frm) {
-            console.log("Jalali Settings after_save triggered");
-            frappe.msgprint(__("\u062A\u0646\u0638\u06CC\u0645\u0627\u062A \u062A\u0642\u0648\u06CC\u0645 \u062C\u0644\u0627\u0644\u06CC \u0630\u062E\u06CC\u0631\u0647 \u0634\u062F. \u0635\u0641\u062D\u0647 \u062F\u0631 \u062D\u0627\u0644 \u0628\u0627\u0631\u06AF\u0630\u0627\u0631\u06CC \u0645\u062C\u062F\u062F..."));
             setTimeout(function() {
               window.location.reload();
-            }, 1500);
-          },
-          onload: function(frm) {
-            console.log("Jalali Settings onload triggered");
-            if (!frm.is_new()) {
-              console.log("Original values:", {
-                enable_jalali: frm.doc.enable_jalali,
-                default_calendar: frm.doc.default_calendar,
-                user_calendar: frm.doc.user_calendar,
-                week_start: frm.doc.week_start,
-                week_end: frm.doc.week_end
-              });
-            }
+            }, 100);
           }
         });
       } else {
@@ -1311,4 +1284,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.JLJGCU2I.js.map
+//# sourceMappingURL=jalali_support.bundle.73AUVJMN.js.map
