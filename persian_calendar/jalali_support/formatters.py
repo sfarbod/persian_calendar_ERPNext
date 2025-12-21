@@ -73,10 +73,17 @@ def format_value(value, df=None, doc=None, currency=None, translated=False, form
 	if display_calendar == "Gregorian":
 		return original_format_value(value, df, doc, currency, translated, format)
 	
-	if df and df.get("fieldtype") in ("Date", "Datetime"):
-		if df.get("fieldtype") == "Date":
+	# Get fieldtype safely - handle both dict and object
+	fieldtype = None
+	if isinstance(df, dict):
+		fieldtype = df.get("fieldtype")
+	else:
+		fieldtype = getattr(df, "fieldtype", None)
+	
+	if fieldtype in ("Date", "Datetime"):
+		if fieldtype == "Date":
 			return formatdate(value)
-		elif df.get("fieldtype") == "Datetime":
+		elif fieldtype == "Datetime":
 			return format_datetime(value)
 	
 	return original_format_value(value, df, doc, currency, translated, format)

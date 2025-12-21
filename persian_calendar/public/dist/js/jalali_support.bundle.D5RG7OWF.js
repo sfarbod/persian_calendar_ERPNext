@@ -70,41 +70,74 @@
   })();
 
   // ../persian_calendar/persian_calendar/public/js/jalali_support/persian_calendar.js
-  (async function() {
+  (function() {
     frappe.provide("frappe.ui.form");
     console.log("jalali_support script loaded");
-    let jalaliEnabled = false;
-    try {
-      const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
-      jalaliEnabled = result && result.message;
-      console.log("Jalali calendar enabled:", jalaliEnabled);
-    } catch (e) {
-      console.log("Error checking Jalali settings:", e);
-      jalaliEnabled = false;
-    }
-    if (!jalaliEnabled) {
-      console.log("Jalali calendar is disabled, skipping datepicker overrides");
-      return;
-    }
+    let jalaliEnabled = null;
     let EFFECTIVE_CALENDAR = {
       display_calendar: "Jalali",
       week_start: 6,
       week_end: 5
     };
-    try {
-      const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
-      if (r && r.message) {
-        EFFECTIVE_CALENDAR = r.message;
-        console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
+    let FIRST_DAY = 6;
+    let calendarSettingsCache = null;
+    let calendarSettingsPromise = null;
+    async function getCalendarSettings() {
+      if (calendarSettingsCache !== null) {
+        return calendarSettingsCache;
       }
-    } catch (e) {
-      console.log("Error fetching effective calendar:", e);
+      if (calendarSettingsPromise) {
+        return calendarSettingsPromise;
+      }
+      calendarSettingsPromise = (async () => {
+        try {
+          const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
+          jalaliEnabled = result && result.message;
+          console.log("Jalali calendar enabled:", jalaliEnabled);
+          if (!jalaliEnabled) {
+            calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
+            return calendarSettingsCache;
+          }
+          const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
+          if (r && r.message) {
+            EFFECTIVE_CALENDAR = r.message;
+            console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
+          }
+          FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
+          calendarSettingsCache = {
+            enabled: jalaliEnabled,
+            calendar: EFFECTIVE_CALENDAR,
+            firstDay: FIRST_DAY
+          };
+          return calendarSettingsCache;
+        } catch (e) {
+          console.log("Error fetching calendar settings:", e);
+          jalaliEnabled = false;
+          calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
+          return calendarSettingsCache;
+        }
+      })();
+      return calendarSettingsPromise;
     }
-    let FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
+    getCalendarSettings();
     function gToJ(gDate) {
+      if (typeof toJalali === "undefined" && typeof window.toJalali !== "undefined") {
+        window.toJalali = window.toJalali;
+      }
+      if (typeof toJalali === "undefined") {
+        console.error("toJalali function is not available! Make sure jalaali.js is loaded.");
+        return { jy: 1400, jm: 1, jd: 1 };
+      }
       return toJalali(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
     }
     function jToG(jy, jm, jd) {
+      if (typeof toGregorian === "undefined" && typeof window.toGregorian !== "undefined") {
+        window.toGregorian = window.toGregorian;
+      }
+      if (typeof toGregorian === "undefined") {
+        console.error("toGregorian function is not available! Make sure jalaali.js is loaded.");
+        return { gy: 2021, gm: 1, gd: 1 };
+      }
       return toGregorian(jy, jm, jd);
     }
     function formatJalaliDate(jy, jm, jd) {
@@ -916,16 +949,52 @@
         setTimeout(overrideControlsWhenReady, 50);
         return;
       }
+      if (frappe.ui.form.ControlDate.prototype.replaceWithJalaliDatepicker) {
+        console.log("ControlDate already patched for Jalali");
+        return;
+      }
       const BaseControlDate = frappe.ui.form.ControlDate;
       class JalaliControlDate extends BaseControlDate {
         make_input() {
-          this.display_calendar = EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar || "Jalali";
-          if (this.display_calendar === "Gregorian") {
-            super.make_input();
-            return;
-          }
+          var _a, _b;
           super.make_input();
-          this.replaceWithJalaliDatepicker();
+          let useJalali = true;
+          let display_calendar = "Jalali";
+          if (calendarSettingsCache !== null) {
+            useJalali = calendarSettingsCache.enabled && ((_a = calendarSettingsCache.calendar) == null ? void 0 : _a.display_calendar) !== "Gregorian";
+            display_calendar = ((_b = calendarSettingsCache.calendar) == null ? void 0 : _b.display_calendar) || "Jalali";
+            if (calendarSettingsCache.calendar) {
+              EFFECTIVE_CALENDAR = calendarSettingsCache.calendar;
+            }
+            if (calendarSettingsCache.firstDay !== void 0) {
+              FIRST_DAY = calendarSettingsCache.firstDay;
+            }
+          } else {
+            getCalendarSettings().then((settings) => {
+              var _a2;
+              if (!settings.enabled || ((_a2 = settings.calendar) == null ? void 0 : _a2.display_calendar) === "Gregorian") {
+                if (this.jalaliDatepicker) {
+                  this.removeAirDatepickerInstances();
+                  this.jalaliDatepicker = null;
+                  super.make_input();
+                }
+              } else {
+                if (settings.calendar) {
+                  EFFECTIVE_CALENDAR = settings.calendar;
+                }
+                if (settings.firstDay !== void 0) {
+                  FIRST_DAY = settings.firstDay;
+                }
+                if (this.jalaliDatepicker) {
+                  this.jalaliDatepicker.updateDisplay();
+                }
+              }
+            });
+          }
+          this.display_calendar = display_calendar;
+          if (useJalali) {
+            this.replaceWithJalaliDatepicker();
+          }
         }
         replaceWithJalaliDatepicker() {
           this.$input = this.$wrapper.find("input");
@@ -1083,9 +1152,18 @@
           console.log("Air-datepicker instances removed for field:", this.df.fieldname);
         }
         set_formatted_input(value) {
+          var _a;
           try {
-            const display_calendar = this.display_calendar || EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar || "Jalali";
-            if (display_calendar === "Gregorian") {
+            const useJalali = calendarSettingsCache === null || calendarSettingsCache.enabled && ((_a = calendarSettingsCache.calendar) == null ? void 0 : _a.display_calendar) !== "Gregorian";
+            let display_calendar = this.display_calendar;
+            if (!display_calendar) {
+              if (calendarSettingsCache && calendarSettingsCache.calendar) {
+                display_calendar = calendarSettingsCache.calendar.display_calendar;
+              } else {
+                display_calendar = EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar || "Jalali";
+              }
+            }
+            if (!useJalali || display_calendar === "Gregorian") {
               console.log("set_formatted_input - Using Gregorian calendar, no conversion");
               return super.set_formatted_input(value);
             }
@@ -1158,13 +1236,14 @@
     overrideControlsWhenReady();
     try {
       frappe.ui.form.on("Fiscal Year", {
-        onload: function(frm) {
+        onload: async function(frm) {
           try {
             if (!frm.doc.__islocal)
               return;
-            if (!jalaliEnabled)
+            const settings = await getCalendarSettings();
+            if (!settings.enabled)
               return;
-            if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === "Gregorian")
+            if (settings.calendar && settings.calendar.display_calendar === "Gregorian")
               return;
             if (frm.doc.year_start_date)
               return;
@@ -1348,4 +1427,4 @@
     initAutoRefresh();
   })();
 })();
-//# sourceMappingURL=jalali_support.bundle.ERPOQ4GX.js.map
+//# sourceMappingURL=jalali_support.bundle.D5RG7OWF.js.map
