@@ -1,50 +1,96 @@
-(async function() {
+(function() {
   frappe.provide("frappe.ui.form");
 
   console.log("jalali_support script loaded");
 
-  // Check if Jalali calendar is enabled
-  let jalaliEnabled = false;
-  try {
-    const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
-    jalaliEnabled = result && result.message;
-    console.log("Jalali calendar enabled:", jalaliEnabled);
-  } catch(e) {
-    console.log("Error checking Jalali settings:", e);
-    jalaliEnabled = false;
-  }
-
-  if (!jalaliEnabled) {
-    console.log("Jalali calendar is disabled, skipping datepicker overrides");
-    return;
-  }
-
-  // Get effective calendar settings
+  // Global variables - will be populated asynchronously
+  let jalaliEnabled = null; // null = not checked yet, true/false = checked
   let EFFECTIVE_CALENDAR = {
     display_calendar: "Jalali",
     week_start: 6,
     week_end: 5
   };
+  let FIRST_DAY = 6;
   
-  try {
-    const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
-    if (r && r.message) {
-      EFFECTIVE_CALENDAR = r.message;
-      console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
+  // Cache for calendar settings to avoid multiple API calls
+  let calendarSettingsCache = null;
+  let calendarSettingsPromise = null;
+
+  // Function to get calendar settings (with caching)
+  async function getCalendarSettings() {
+    if (calendarSettingsCache !== null) {
+      return calendarSettingsCache;
     }
-  } catch(e) {
-    console.log("Error fetching effective calendar:", e);
+    
+    if (calendarSettingsPromise) {
+      return calendarSettingsPromise;
+    }
+    
+    calendarSettingsPromise = (async () => {
+      try {
+        // Check if Jalali calendar is enabled
+        const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
+        jalaliEnabled = result && result.message;
+        console.log("Jalali calendar enabled:", jalaliEnabled);
+        
+        if (!jalaliEnabled) {
+          calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
+          return calendarSettingsCache;
+        }
+        
+        // Get effective calendar settings
+        const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
+        if (r && r.message) {
+          EFFECTIVE_CALENDAR = r.message;
+          console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
+        }
+        
+        FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
+        
+        calendarSettingsCache = { 
+          enabled: jalaliEnabled, 
+          calendar: EFFECTIVE_CALENDAR,
+          firstDay: FIRST_DAY
+        };
+        return calendarSettingsCache;
+      } catch(e) {
+        console.log("Error fetching calendar settings:", e);
+        jalaliEnabled = false;
+        calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
+        return calendarSettingsCache;
+      }
+    })();
+    
+    return calendarSettingsPromise;
   }
 
-  // Legacy FIRST_DAY for backward compatibility
-  let FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
+  // Start loading calendar settings immediately (but don't wait)
+  getCalendarSettings();
 
   // Helper functions
   function gToJ(gDate) {
+    // Check if toJalali is available (from jalaali.js)
+    if (typeof toJalali === 'undefined' && typeof window.toJalali !== 'undefined') {
+      window.toJalali = window.toJalali;
+    }
+    if (typeof toJalali === 'undefined') {
+      console.error("toJalali function is not available! Make sure jalaali.js is loaded.");
+      // Fallback: return a dummy object
+      return { jy: 1400, jm: 1, jd: 1 };
+    }
     return toJalali(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
   }
 
   function jToG(jy, jm, jd) {
+    // Check if toGregorian is available (from jalaali.js)
+    if (typeof toGregorian === 'undefined' && typeof window.toGregorian !== 'undefined') {
+      window.toGregorian = window.toGregorian;
+    }
+    if (typeof toGregorian === 'undefined') {
+      console.error("toGregorian function is not available! Make sure jalaali.js is loaded.");
+      // Fallback: return a dummy object
+      return { gy: 2021, gm: 1, gd: 1 };
+    }
     return toGregorian(jy, jm, jd);
   }
 
@@ -1028,7 +1074,14 @@ class JalaliDatepicker {
   function overrideControlsWhenReady() {
     const hasControls = frappe && frappe.ui && frappe.ui.form && frappe.ui.form.ControlDate;
     if (!hasControls) {
+      // Try again after a short delay
       setTimeout(overrideControlsWhenReady, 50);
+      return;
+    }
+
+    // Check if already overridden
+    if (frappe.ui.form.ControlDate.prototype.replaceWithJalaliDatepicker) {
+      console.log("ControlDate already patched for Jalali");
       return;
     }
 
@@ -1036,21 +1089,63 @@ class JalaliDatepicker {
 
     class JalaliControlDate extends BaseControlDate {
       make_input() {
-        // Check if we should use Jalali datepicker based on effective calendar
-        // Store display_calendar in instance for later use
-        this.display_calendar = (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar) || "Jalali";
-        
-        if (this.display_calendar === "Gregorian") {
-          // Use default Frappe datepicker - don't create JalaliDatepicker
-          super.make_input();
-          return;
-        }
-        
-        // Call the parent method to get the standard Frappe input structure
+        // Always call parent first to get standard Frappe input structure
         super.make_input();
         
-        // Now replace the air-datepicker with our Jalali datepicker
-        this.replaceWithJalaliDatepicker();
+        // Check if we should use Jalali datepicker
+        // If cache is not loaded yet, assume Jalali is enabled (default behavior)
+        let useJalali = true;
+        let display_calendar = "Jalali";
+        
+        if (calendarSettingsCache !== null) {
+          // Settings are loaded - check them
+          useJalali = calendarSettingsCache.enabled && 
+                     calendarSettingsCache.calendar?.display_calendar !== "Gregorian";
+          display_calendar = calendarSettingsCache.calendar?.display_calendar || "Jalali";
+          
+          // Update globals
+          if (calendarSettingsCache.calendar) {
+            EFFECTIVE_CALENDAR = calendarSettingsCache.calendar;
+          }
+          if (calendarSettingsCache.firstDay !== undefined) {
+            FIRST_DAY = calendarSettingsCache.firstDay;
+          }
+        } else {
+          // Settings not loaded yet - start loading in background
+          // For now, use Jalali by default (will be corrected if needed)
+          getCalendarSettings().then(settings => {
+            // If settings show Gregorian, we need to switch to Gregorian
+            if (!settings.enabled || settings.calendar?.display_calendar === "Gregorian") {
+              // Remove Jalali datepicker and reinitialize with Gregorian
+              if (this.jalaliDatepicker) {
+                this.removeAirDatepickerInstances();
+                this.jalaliDatepicker = null;
+                // Reinitialize with Gregorian
+                super.make_input();
+              }
+            } else {
+              // Update globals
+              if (settings.calendar) {
+                EFFECTIVE_CALENDAR = settings.calendar;
+              }
+              if (settings.firstDay !== undefined) {
+                FIRST_DAY = settings.firstDay;
+              }
+              // Update datepicker if it exists
+              if (this.jalaliDatepicker) {
+                this.jalaliDatepicker.updateDisplay();
+              }
+            }
+          });
+        }
+        
+        // Store display_calendar for later use
+        this.display_calendar = display_calendar;
+        
+        // Replace the air-datepicker with our Jalali datepicker (if enabled)
+        if (useJalali) {
+          this.replaceWithJalaliDatepicker();
+        }
       }
       
       replaceWithJalaliDatepicker() {
@@ -1257,13 +1352,23 @@ class JalaliDatepicker {
 
       set_formatted_input(value) {
         try {
-          // Check display calendar from instance or global
-          const display_calendar = this.display_calendar || 
-            (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar) || 
-            "Jalali";
+          // Check cache first
+          const useJalali = calendarSettingsCache === null || 
+                           (calendarSettingsCache.enabled && 
+                            calendarSettingsCache.calendar?.display_calendar !== "Gregorian");
+          
+          // Check display calendar from instance, cache, or global
+          let display_calendar = this.display_calendar;
+          if (!display_calendar) {
+            if (calendarSettingsCache && calendarSettingsCache.calendar) {
+              display_calendar = calendarSettingsCache.calendar.display_calendar;
+            } else {
+              display_calendar = (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar) || "Jalali";
+            }
+          }
           
           // Check if we should use Gregorian calendar (no conversion)
-          if (display_calendar === "Gregorian") {
+          if (!useJalali || display_calendar === "Gregorian") {
             // Use default Frappe behavior - show Gregorian dates as-is
             // Don't convert to Jalali
             console.log('set_formatted_input - Using Gregorian calendar, no conversion');
@@ -1372,11 +1477,14 @@ class JalaliDatepicker {
   // Override Fiscal Year defaults to Jalali year boundaries when enabled
   try {
     frappe.ui.form.on('Fiscal Year', {
-      onload: function(frm) {
+      onload: async function(frm) {
         try {
           if (!frm.doc.__islocal) return; // only for new docs
-          if (!jalaliEnabled) return;
-          if (EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === 'Gregorian') return;
+          
+          // Get calendar settings
+          const settings = await getCalendarSettings();
+          if (!settings.enabled) return;
+          if (settings.calendar && settings.calendar.display_calendar === 'Gregorian') return;
 
           // If user already set a start date, don't override
           if (frm.doc.year_start_date) return;
