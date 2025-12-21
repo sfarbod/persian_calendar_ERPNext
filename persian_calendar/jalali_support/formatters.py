@@ -73,9 +73,37 @@ def format_value(value, df=None, doc=None, currency=None, translated=False, form
 	if display_calendar == "Gregorian":
 		return original_format_value(value, df, doc, currency, translated, format)
 	
-	# Get fieldtype safely - handle both dict and object
+	# Get fieldtype safely - handle dict, object, string, and None
 	fieldtype = None
-	if isinstance(df, dict):
+	if df is None:
+		# No field definition provided, pass through to original formatter
+		return original_format_value(value, df, doc, currency, translated, format)
+	elif isinstance(df, str):
+		# df is a string (field name), try to get field from doc's meta if available
+		if doc:
+			try:
+				# Handle doc as object, dict, or string (docname)
+				if isinstance(doc, str):
+					# doc is a docname, need doctype - can't determine without more context
+					# Pass through to original formatter
+					return original_format_value(value, df, doc, currency, translated, format)
+				elif isinstance(doc, dict):
+					doctype = doc.get('doctype')
+				else:
+					doctype = getattr(doc, 'doctype', None)
+				
+				if doctype:
+					meta = frappe.get_meta(doctype)
+					field = meta.get_field(df)
+					if field:
+						fieldtype = field.fieldtype
+			except Exception as e:
+				# If anything fails, just pass through to original formatter
+				pass
+		# If we couldn't get fieldtype, pass through to original formatter
+		if not fieldtype:
+			return original_format_value(value, df, doc, currency, translated, format)
+	elif isinstance(df, dict):
 		fieldtype = df.get("fieldtype")
 	else:
 		fieldtype = getattr(df, "fieldtype", None)
