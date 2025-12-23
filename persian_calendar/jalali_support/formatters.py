@@ -20,8 +20,14 @@ def formatdate(string_date=None, format_string=None, parse_day_first=False):
 	if not string_date:
 		return ""
 	
+	# If format_string is specified, use original formatdate to preserve format
+	# This is needed for reports that use dates as keys (e.g., "MMM YYYY" format)
+	# The original formatdate handles format_string properly for Gregorian dates
+	if format_string:
+		return original_formatdate(string_date, format_string, parse_day_first)
+	
 	try:
-		# Convert Gregorian to Jalali
+		# Convert Gregorian to Jalali (only when no format_string is specified)
 		date_obj = getdate(string_date)
 		jalali_date = gregorian_to_jalali(date_obj.year, date_obj.month, date_obj.day)
 		result = f"{jalali_date['jy']}-{jalali_date['jm']:02d}-{jalali_date['jd']:02d}"
