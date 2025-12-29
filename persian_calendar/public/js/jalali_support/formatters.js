@@ -45,6 +45,55 @@
     }
   }
 
+  // Convert Jalali date string back to Gregorian
+  function j2g_str(value) {
+    if (!value) return value;
+    
+    try {
+      // Check if this looks like a Jalali date (year > 1300 and < 1500)
+      // Format: YYYY-MM-DD or YYYY-MM-DD HH:mm:ss
+      const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/);
+      if (!dateMatch) {
+        // Doesn't look like a date string, return as-is
+        return value;
+      }
+      
+      const jy = parseInt(dateMatch[1], 10);
+      const jm = parseInt(dateMatch[2], 10);
+      const jd = parseInt(dateMatch[3], 10);
+      const hour = dateMatch[4] ? parseInt(dateMatch[4], 10) : 0;
+      const minute = dateMatch[5] ? parseInt(dateMatch[5], 10) : 0;
+      const second = dateMatch[6] ? parseInt(dateMatch[6], 10) : 0;
+      
+      // Check if this is likely a Jalali date (years 1300-1500)
+      if (jy < 1300 || jy > 1500) {
+        // Probably already Gregorian, return as-is
+        return value;
+      }
+      
+      // Convert Jalali to Gregorian
+      if (typeof window.toGregorian === 'undefined') {
+        console.error("toGregorian function is not available!");
+        return value;
+      }
+      
+      const g = window.toGregorian(jy, jm, jd);
+      if (!g) return value;
+      
+      const gregorianDate = `${g.gy}-${String(g.gm).padStart(2,"0")}-${String(g.gd).padStart(2,"0")}`;
+      
+      // If there's time component, append it
+      if (dateMatch[4]) {
+        return `${gregorianDate} ${String(hour).padStart(2,"0")}:${String(minute).padStart(2,"0")}:${String(second).padStart(2,"0")}`;
+      }
+      
+      return gregorianDate;
+    } catch(e) {
+      console.error("Error converting Jalali to Gregorian:", e, value);
+      return value;
+    }
+  }
+
   // Helper function to check if we should convert to Jalali
   function shouldConvertToJalali() {
     return EFFECTIVE_CALENDAR && EFFECTIVE_CALENDAR.display_calendar === "Jalali";
@@ -54,6 +103,7 @@
   const dt = frappe.datetime;
   const orig_str_to_user = dt.str_to_user?.bind(dt);
   const orig_str_to_user_with_default = dt.str_to_user_with_default?.bind(dt);
+  const orig_user_to_str = dt.user_to_str?.bind(dt);
   const orig_format_date = dt.format_date?.bind(dt);
   const orig_format_datetime = dt.format_datetime?.bind(dt);
 
@@ -86,6 +136,19 @@
       }
       
       return dt.str_to_user(value);
+    };
+  }
+  if (orig_user_to_str) {
+    dt.user_to_str = function(value) {
+      if (!value) return value;
+      
+      // Check if we should convert from Jalali back to Gregorian
+      if (!shouldConvertToJalali()) {
+        return orig_user_to_str(value);
+      }
+      
+      // Convert Jalali date string back to Gregorian before sending to server
+      return j2g_str(value);
     };
   }
   if (orig_format_date) {
