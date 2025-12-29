@@ -98,10 +98,42 @@
     return `${jy}-${String(jm).padStart(2,"0")}-${String(jd).padStart(2,"0")}`;
   }
 
+  function formatJalaliDateTime(jy, jm, jd, hour, minute, second) {
+    const dateStr = formatJalaliDate(jy, jm, jd);
+    const timeStr = `${String(hour || 0).padStart(2,"0")}:${String(minute || 0).padStart(2,"0")}:${String(second || 0).padStart(2,"0")}`;
+    return `${dateStr} ${timeStr}`;
+  }
+
   function parseJalaliDate(dateStr) {
     const parts = dateStr.split('-').map(Number);
     if (parts.length !== 3) return null;
     return { jy: parts[0], jm: parts[1], jd: parts[2] };
+  }
+
+  function parseJalaliDateTime(dateTimeStr) {
+    // Handle format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM"
+    const spaceIndex = dateTimeStr.indexOf(' ');
+    if (spaceIndex === -1) {
+      // No time part, parse as date only
+      return parseJalaliDate(dateTimeStr);
+    }
+    
+    const dateStr = dateTimeStr.substring(0, spaceIndex);
+    const timeStr = dateTimeStr.substring(spaceIndex + 1);
+    const date = parseJalaliDate(dateStr);
+    
+    if (!date) return null;
+    
+    // Parse time: "HH:MM:SS" or "HH:MM"
+    const timeParts = timeStr.split(':').map(Number);
+    return {
+      jy: date.jy,
+      jm: date.jm,
+      jd: date.jd,
+      hour: timeParts[0] || 0,
+      minute: timeParts[1] || 0,
+      second: timeParts[2] || 0
+    };
   }
 
 // Global function to close all Jalali datepickers
@@ -124,13 +156,17 @@ function closeAllJalaliDatepickers() {
 
 // Enhanced Jalali Datepicker Class
 class JalaliDatepicker {
-    constructor(input, controlDate = null) {
+    constructor(input, controlDate = null, isDateTime = false) {
       this.input = input;
       this.$input = $(input);
       this.controlDate = controlDate;
+      this.isDateTime = isDateTime;
       this.isOpen = false;
+      this._isDraggingSlider = false; // Track if user is dragging a slider
+      this._isApplyingValue = false; // Track if we're applying a value (prevent closing during updates)
       this.currentDate = gToJ(new Date());
       this.selectedDate = null;
+      this.selectedTime = { hour: new Date().getHours(), minute: new Date().getMinutes(), second: new Date().getSeconds() };
       this.view = 'days'; // 'days', 'months', 'years'
       this.yearRange = { start: 1400, end: 1410 };
       
@@ -146,88 +182,13 @@ class JalaliDatepicker {
     }
     
     fixAlignment() {
-      // Ensure input field alignment matches other form fields using exact Frappe CSS variables
-      const $input = this.$input;
-      const $wrapper = $input.closest('.form-group, .frappe-control');
-      const $formColumn = $input.closest('.form-column');
-      
-      if ($wrapper.length) {
-        // Reset wrapper styles to match Frappe defaults with higher specificity
-        $wrapper.css({
-          'margin-bottom': '0 !important',
-          'padding': '0 !important',
-          'vertical-align': 'top !important',
-          'display': 'block !important',
-          'position': 'relative !important',
-          'align-items': 'flex-start !important'
-        });
-        
-        // Apply exact Frappe form control styling with higher specificity - match Gregorian exactly
-        $input.css({
-          'height': '28px !important', // Exact height like Gregorian
-          'line-height': '28px !important', // Exact line-height like Gregorian
-          'padding': '6px 8px !important', // Exact padding like Gregorian
-          'margin': '0 !important',
-          'vertical-align': 'top !important',
-          'box-sizing': 'border-box !important',
-          'background-color': '#fff !important', // Exact background like Gregorian
-          'border': '1px solid #d1d8dd !important', // Exact border like Gregorian
-          'border-radius': '4px !important', // Exact border-radius like Gregorian
-          'font-size': '13px !important', // Exact font-size like Gregorian
-          'font-weight': 'normal !important', // Exact font-weight like Gregorian
-          'color': '#36414c !important', // Exact color like Gregorian
-          'position': 'relative !important',
-          'z-index': '1 !important',
-          'display': 'block !important',
-          'width': '100% !important',
-          'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important' // Exact font-family like Gregorian
-        });
-        
-        // Ensure the input container has proper positioning
-        const $inputContainer = $input.closest('.control-input, .form-control-wrapper');
-        if ($inputContainer.length) {
-          $inputContainer.css({
-            'position': 'relative !important',
-            'display': 'block !important',
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'align-items': 'flex-start !important'
-          });
-        }
-        
-        // Ensure form column alignment with higher specificity
-        if ($formColumn.length) {
-          $formColumn.css({
-            'vertical-align': 'top !important',
-            'display': 'flex !important',
-            'flex-direction': 'column !important',
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'align-items': 'stretch !important',
-            'justify-content': 'flex-start !important'
-          });
-        }
-        
-        // Target the specific form section to ensure proper alignment
-        const $formSection = $input.closest('.form-section');
-        if ($formSection.length) {
-          $formSection.css({
-            'display': 'flex !important',
-            'flex-direction': 'row !important',
-            'align-items': 'flex-start !important'
-          });
-        }
-        
-        // Ensure the datepicker doesn't affect layout
+      // Don't override any styling - let Frappe handle all layout and spacing
+      // Only ensure the datepicker doesn't affect layout
         if (this.$calendar && this.$calendar.length) {
           this.$calendar.css({
             'position': 'absolute !important',
-            'z-index': '9999 !important',
-            'margin': '0 !important',
-            'padding': '0 !important'
+          'z-index': '9999 !important'
           });
-        }
       }
     }
 
@@ -237,7 +198,7 @@ class JalaliDatepicker {
       
       // Create calendar HTML with exact Gregorian styling
       const calendarHTML = `
-        <div class="jalali-datepicker" style="
+        <div class="jalali-datepicker ${this.isDateTime ? 'jalali-datetime-picker' : ''}" style="
           position: absolute;
           top: 100%;
           left: 0;
@@ -247,7 +208,7 @@ class JalaliDatepicker {
           box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,0.15));
           z-index: 1000;
           display: none;
-          width: 210px;
+          width: ${this.isDateTime ? '240px' : '210px'};
           padding: 1px;
           font-family: var(--font-stack, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
           font-size: var(--text-sm, 13px);
@@ -351,6 +312,83 @@ class JalaliDatepicker {
             </div>
           </div>
           
+          <!-- Time Picker (for datetime) -->
+          ${this.isDateTime ? `
+          <div class="time-picker" style="
+            margin-top: 0;
+            padding: 8px;
+            border-top: 1px solid var(--border-color, #e5e7eb);
+            background: var(--bg-color, #fafafa);
+          ">
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Hour -->
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 11px; color: var(--text-color, #36414c); min-width: 30px;">ساعت:</label>
+                <input type="range" class="time-hour" min="0" max="23" value="0" style="
+                  flex: 1;
+                  height: 4px;
+                  background: var(--border-color, #d1d8dd);
+                  border-radius: 2px;
+                  outline: none;
+                  -webkit-appearance: none;
+                ">
+                <span class="time-hour-value" style="font-size: 11px; color: var(--text-color, #36414c); min-width: 25px; text-align: center; font-weight: 500;">0</span>
+              </div>
+              <!-- Minute -->
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 11px; color: var(--text-color, #36414c); min-width: 30px;">دقیقه:</label>
+                <input type="range" class="time-minute" min="0" max="59" value="0" style="
+                  flex: 1;
+                  height: 4px;
+                  background: var(--border-color, #d1d8dd);
+                  border-radius: 2px;
+                  outline: none;
+                  -webkit-appearance: none;
+                ">
+                <span class="time-minute-value" style="font-size: 11px; color: var(--text-color, #36414c); min-width: 25px; text-align: center; font-weight: 500;">0</span>
+              </div>
+              <!-- Second -->
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 11px; color: var(--text-color, #36414c); min-width: 30px;">ثانیه:</label>
+                <input type="range" class="time-second" min="0" max="59" value="0" style="
+                  flex: 1;
+                  height: 4px;
+                  background: var(--border-color, #d1d8dd);
+                  border-radius: 2px;
+                  outline: none;
+                  -webkit-appearance: none;
+                ">
+                <span class="time-second-value" style="font-size: 11px; color: var(--text-color, #36414c); min-width: 25px; text-align: center; font-weight: 500;">0</span>
+              </div>
+            </div>
+            <style>
+              .jalali-datepicker .time-picker input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 14px;
+                height: 14px;
+                background: var(--primary, #171717);
+                border-radius: 50%;
+                cursor: pointer;
+              }
+              .jalali-datepicker .time-picker input[type="range"]::-moz-range-thumb {
+                width: 14px;
+                height: 14px;
+                background: var(--primary, #171717);
+                border-radius: 50%;
+                cursor: pointer;
+                border: none;
+              }
+              .jalali-datepicker .time-picker input[type="range"]:hover::-webkit-slider-thumb {
+                background: var(--primary, #000);
+              }
+              .jalali-datepicker .time-picker input[type="range"]:hover::-moz-range-thumb {
+                background: var(--primary, #000);
+              }
+            </style>
+          </div>
+          ` : ''}
+          
           <!-- Footer -->
           <div class="calendar-footer" style="
             margin-top: 1px;
@@ -358,7 +396,7 @@ class JalaliDatepicker {
             border-top: 1px solid var(--border-color, #eee);
             text-align: center;
           ">
-            <button type="button" class="today-btn" style="
+            <button type="button" class="${this.isDateTime ? 'now-btn' : 'today-btn'}" style="
               background: transparent;
               color: var(--text-color, #36414c);
               border: 1px solid var(--border-color, #d1d8dd);
@@ -370,7 +408,7 @@ class JalaliDatepicker {
               transition: all 0.2s ease;
               font-family: var(--font-stack, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
               width: 100%;
-            ">امروز</button>
+            ">${this.isDateTime ? 'اکنون' : 'امروز'}</button>
           </div>
         </div>
       `;
@@ -384,11 +422,32 @@ class JalaliDatepicker {
     bindEvents() {
       const self = this;
       
-      // Input click
-      this.$input.on('click', function(e) {
-        e.preventDefault();
+      // Input click - toggle calendar (open if closed, close if open)
+      // Use mousedown instead of click to prevent _globalClickListener from closing it immediately
+      this.$input.on('mousedown', function(e) {
         e.stopPropagation();
-        self.toggle();
+        // Use setTimeout to ensure this runs before _globalClickListener
+        setTimeout(function() {
+          if (self.isOpen) {
+            // If already open, close it
+            self.close();
+          } else {
+            // If closed, open it
+            self.open();
+          }
+        }, 0);
+      });
+      
+      // Also handle focus for better compatibility
+      this.$input.on('focus', function(e) {
+        e.stopPropagation();
+        // Use setTimeout to ensure this runs before _globalClickListener
+        setTimeout(function() {
+          if (!self.isOpen) {
+            // Only open if not already open (don't toggle on focus)
+            self.open();
+          }
+        }, 0);
       });
       
       // Month/Year navigation
@@ -432,34 +491,135 @@ class JalaliDatepicker {
         self.navigateYear(10);
       });
       
-      // Today button
-      this.$calendar.find('.today-btn').on('click', function(e) {
+      // Today/Now button
+      this.$calendar.find('.today-btn, .now-btn').on('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        self.selectToday();
-      });
-      
-      // Simple click outside to close
-      $(document).on('click.jalali-datepicker-global', function(e) {
-        if (self.isOpen) {
-          const $target = $(e.target);
-          // Close if clicking outside the datepicker and not on the input field
-          if (!$target.closest('.jalali-datepicker').length && 
-              !$target.is(self.input)) {
-            console.log('Closing datepicker due to click outside');
-            self.close();
-          }
+        if (self.isDateTime) {
+          self.selectNow();
+        } else {
+          self.selectToday();
         }
       });
       
-      // Close when clicking on any date input field
+      // Time picker sliders (for datetime)
+      if (this.isDateTime) {
+        const updateTime = function() {
+          const hour = parseInt(self.$calendar.find('.time-hour').val()) || 0;
+          const minute = parseInt(self.$calendar.find('.time-minute').val()) || 0;
+          const second = parseInt(self.$calendar.find('.time-second').val()) || 0;
+          
+          // Update value labels
+          self.$calendar.find('.time-hour-value').text(hour);
+          self.$calendar.find('.time-minute-value').text(minute);
+          self.$calendar.find('.time-second-value').text(second);
+          
+          self.selectedTime = {
+            hour: hour,
+            minute: minute,
+            second: second
+          };
+          // Apply the updated time if date is already selected
+          // Use flag to prevent calendar from closing during update
+          if (self.selectedDate) {
+            // Set flag to prevent calendar from closing
+            self._isApplyingValue = true;
+            
+            // Update input value but keep calendar open
+            let jalaliStr = formatJalaliDateTime(
+              self.selectedDate.jy, 
+              self.selectedDate.jm, 
+              self.selectedDate.jd,
+              hour,
+              minute,
+              second
+            );
+            // Convert to Gregorian for storage
+            const gregorian = jToG(self.selectedDate.jy, self.selectedDate.jm, self.selectedDate.jd);
+            let gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
+            gregorianStr += ` ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+            
+            // Set the value directly without closing calendar
+            if (self.controlDate && self.controlDate.set_value) {
+              self.controlDate.set_value(gregorianStr);
+              self.$input.val(jalaliStr);
+            } else {
+              self.$input.val(jalaliStr);
+              // Don't trigger change event as it might cause issues
+              // self.$input.trigger('change');
+            }
+            
+            // Clear flag after a delay
+            setTimeout(function() {
+              self._isApplyingValue = false;
+            }, 200);
+          }
+        };
+        
+        // Update on input (while dragging) and change (on release)
+        // Track if user is dragging to prevent calendar from closing
+        const timePickerSliders = this.$calendar.find('.time-hour, .time-minute, .time-second');
+        
+        // Mark dragging when user starts dragging (use instance variable)
+        timePickerSliders.on('mousedown', function(e) {
+          self._isDraggingSlider = true;
+          // Don't stop propagation - needed for slider to work
+        });
+        
+        // Clear dragging flag when mouse is released
+        timePickerSliders.on('mouseup', function(e) {
+          // Clear flag after a delay to allow click event to be handled
+          setTimeout(function() {
+            self._isDraggingSlider = false;
+          }, 300);
+          // Don't stop propagation
+        });
+        
+        // Stop click events on sliders (but check if dragging first)
+        timePickerSliders.on('click', function(e) {
+          if (self._isDraggingSlider) {
+            // If we were dragging, this click is from the drag, ignore it completely
+            e.stopPropagation();
+            e.preventDefault();
+            self._isDraggingSlider = false;
+            return false;
+          }
+          // Normal click (not from drag), stop propagation
+          e.stopPropagation();
+        });
+        
+        // Update time during drag - keep dragging flag true
+        timePickerSliders.on('input', function(e) {
+          self._isDraggingSlider = true; // Keep flag true during drag
+          updateTime();
+        });
+        
+        // Update time after drag ends
+        timePickerSliders.on('change', function(e) {
+          setTimeout(function() {
+            self._isDraggingSlider = false;
+          }, 300);
+          updateTime();
+        });
+        
+        // Stop click events on time-picker container
+        const $timePicker = this.$calendar.find('.time-picker');
+        $timePicker.on('click', function(e) {
+          e.stopPropagation();
+        });
+      }
+      
+      // Simple click outside to close - removed, using _globalClickListener instead
+      // This was causing conflicts with slider interactions
+      
+      // Close when clicking on any date/datetime input field
       $(document).on('click.jalali-datepicker-date-inputs', function(e) {
         if (self.isOpen) {
           const $target = $(e.target);
-          // Close if clicking on any date input field that's not our current input
-          if ($target.is('input[data-fieldtype="Date"]') && 
+          // Close if clicking on any date/datetime input field that's not our current input
+          if (($target.is('input[data-fieldtype="Date"]') || $target.is('input[data-fieldtype="Datetime"]')) && 
               !$target.is(self.input)) {
-            console.log('Closing datepicker due to click on another date field');
+            console.log('Closing datepicker due to click on another date/datetime field');
             self.close();
           }
         }
@@ -473,21 +633,100 @@ class JalaliDatepicker {
       };
       $(document).on('keydown.jalali-datepicker-' + (this.input.id || 'default'), this._keydownHandler);
 
-      // Use native event listener for capturing phase to ensure clicks outside are caught
-      // This is more robust against e.stopPropagation() from other elements
+      // Flag to prevent closing during value updates
+      this._isApplyingValue = false;
+      
+      // Simple click outside to close
+      // Use setTimeout to allow slider drag events to complete first
       this._globalClickListener = function(e) {
-        if (self.isOpen) {
-          const $target = $(e.target);
-          const isClickInsideDatepicker = $target.closest('.jalali-datepicker').length > 0;
-          const isClickOnOwnInput = $target.is(self.input);
-
-          if (!isClickInsideDatepicker && !isClickOnOwnInput) {
-            console.log('Capturing phase: Closing datepicker due to click outside (general)');
-            self.close();
-          }
+        if (!self.isOpen) {
+          // Calendar is not open, ignore
+          return;
         }
+        
+        // Check immediately if click is on input (before any other checks)
+        const $target = $(e.target);
+        const isClickOnOwnInput = $target.is(self.input) || 
+                                 $(self.input).find($target).length > 0 ||
+                                 $target.closest(self.input).length > 0;
+        
+        // If clicking on input, don't close (input handler will handle toggle)
+        if (isClickOnOwnInput) {
+          return;
+        }
+        
+        console.log(`_globalClickListener: click detected, _isApplyingValue=${self._isApplyingValue}, _isDraggingSlider=${self._isDraggingSlider}`);
+        
+        // If currently applying value or dragging slider, don't close
+        if (self._isApplyingValue || self._isDraggingSlider) {
+          console.log(`_globalClickListener: ignoring click (applying value or dragging)`);
+          return;
+        }
+        
+        // Check if click is inside calendar
+        const isClickInsideDatepicker = self.$calendar && self.$calendar.length > 0 && 
+                                       ($target.closest(self.$calendar).length > 0 || 
+                                        self.$calendar.find($target).length > 0 ||
+                                        $target.closest('.jalali-datepicker').length > 0);
+        const isTimePickerElement = $target.closest('.time-picker').length > 0 ||
+                                   $target.is('input[type="range"]') ||
+                                   $target.closest('input[type="range"]').length > 0 ||
+                                   $target.hasClass('time-hour') ||
+                                   $target.hasClass('time-minute') ||
+                                   $target.hasClass('time-second');
+        
+        // If clicking inside calendar or on slider, don't close
+        if (isClickInsideDatepicker || isTimePickerElement) {
+          console.log(`_globalClickListener: clicking inside calendar/slider, ignoring`);
+          return;
+        }
+        
+        // Use setTimeout to check after all other handlers have run
+        // This allows slider drag events to complete before we check
+        setTimeout(function() {
+          // Check if calendar is still open (might have been closed by another event)
+          if (!self.isOpen) {
+            return;
+          }
+          
+          console.log(`_globalClickListener (timeout): checking again, _isApplyingValue=${self._isApplyingValue}, _isDraggingSlider=${self._isDraggingSlider}`);
+          
+          // Check again if applying value or dragging (might have started during timeout)
+          if (self._isApplyingValue || self._isDraggingSlider) {
+            console.log(`_globalClickListener (timeout): ignoring click (applying value or dragging)`);
+            return;
+          }
+          
+          // Re-check if click is inside calendar (in case DOM changed)
+          const $targetAgain = $(e.target);
+          const isClickInsideDatepickerAgain = self.$calendar && self.$calendar.length > 0 && 
+                                               ($targetAgain.closest(self.$calendar).length > 0 || 
+                                                self.$calendar.find($targetAgain).length > 0 ||
+                                                $targetAgain.closest('.jalali-datepicker').length > 0);
+          const isClickOnOwnInputAgain = $targetAgain.is(self.input) || 
+                                        $(self.input).find($targetAgain).length > 0 ||
+                                        $targetAgain.closest(self.input).length > 0;
+          const isTimePickerElementAgain = $targetAgain.closest('.time-picker').length > 0 ||
+                                           $targetAgain.is('input[type="range"]') ||
+                                           $targetAgain.closest('input[type="range"]').length > 0 ||
+                                           $targetAgain.hasClass('time-hour') ||
+                                           $targetAgain.hasClass('time-minute') ||
+                                           $targetAgain.hasClass('time-second');
+          
+          // If clicking inside calendar, on input, or on slider, don't close
+          if (isClickInsideDatepickerAgain || isClickOnOwnInputAgain || isTimePickerElementAgain) {
+            console.log(`_globalClickListener (timeout): clicking inside calendar/input/slider, ignoring`);
+            return;
+          }
+          
+          // Click is outside, close the calendar
+          console.log('_globalClickListener (timeout): Closing datepicker due to click outside');
+          self.close();
+        }, 100); // Reduced delay for better responsiveness
       };
-      document.addEventListener('click', this._globalClickListener, true); // true for capturing phase
+      
+      // Use click event (bubbling phase)
+      document.addEventListener('click', this._globalClickListener, false);
       
       // Add hover effects
       this.$calendar.find('.nav-btn').hover(
@@ -512,19 +751,45 @@ class JalaliDatepicker {
     }
 
     open() {
-      // Close all other Jalali datepickers first
-      closeAllJalaliDatepickers();
+      // Don't do anything if already open
+      if (this.isOpen) {
+        return;
+      }
+      
+      // Close all other Jalali datepickers first (but not this one)
+      const self = this;
+      $('.jalali-datepicker').each(function() {
+        const $calendar = $(this);
+        const instance = $calendar.data('jalaliDatepickerInstance');
+        if (instance && instance !== self && instance.isOpen) {
+          instance.close();
+        }
+      });
       
       this.isOpen = true;
       this.view = 'days'; // Always reset to days view
-      this.updateDisplay(); // Update display to show current date
+      this.updateDisplay(); // Update display to show current date (this will also update time picker if datetime)
       this.updateCalendar();
+      
+      // Initialize time picker if datetime
+      if (this.isDateTime && this.$calendar) {
+        this.$calendar.find('.time-hour').val(this.selectedTime.hour);
+        this.$calendar.find('.time-minute').val(this.selectedTime.minute);
+        this.$calendar.find('.time-second').val(this.selectedTime.second);
+        // Update value labels
+        this.$calendar.find('.time-hour-value').text(this.selectedTime.hour);
+        this.$calendar.find('.time-minute-value').text(this.selectedTime.minute);
+        this.$calendar.find('.time-second-value').text(this.selectedTime.second);
+      }
+      
       this.$calendar.show();
-      console.log("Calendar opened with view:", this.view);
+      console.log("Calendar opened with view:", this.view, "isDateTime:", this.isDateTime);
     }
 
     close() {
       this.isOpen = false;
+      this._isDraggingSlider = false; // Reset dragging flag
+      this._isApplyingValue = false; // Reset applying value flag
       this.$calendar.hide();
       
       // Remove event handlers to prevent memory leaks
@@ -533,7 +798,7 @@ class JalaliDatepicker {
         this._keydownHandler = null;
       }
       if (this._globalClickListener) {
-        document.removeEventListener('click', this._globalClickListener, true);
+        document.removeEventListener('click', this._globalClickListener, false);
         this._globalClickListener = null;
       }
       
@@ -824,33 +1089,101 @@ class JalaliDatepicker {
       console.log(`Updated calendar with ${daysInMonth} days`);
     }
 
-    selectDate(day) {
+    selectDate(day, closeCalendar) {
+      console.log(`selectDate called: day=${day}, closeCalendar=${closeCalendar}, isDateTime=${this.isDateTime}`);
+      
+      // For datetime fields, never auto-close calendar (allow time selection)
+      // For date fields, close immediately if closeCalendar is true (default true for date fields)
+      if (closeCalendar === undefined) {
+        closeCalendar = !this.isDateTime; // Don't close for datetime, close for date
+      }
+      
       this.selectedDate = {
         jy: this.currentDate.jy,
         jm: this.currentDate.jm,
         jd: day
       };
       
-      const jalaliStr = formatJalaliDate(this.selectedDate.jy, this.selectedDate.jm, this.selectedDate.jd);
+      console.log(`selectDate: selectedDate set to:`, this.selectedDate);
+      
+      // Update time from time picker if datetime
+      if (this.isDateTime) {
+        this.selectedTime = {
+          hour: parseInt(this.$calendar.find('.time-hour').val()) || this.selectedTime.hour || 0,
+          minute: parseInt(this.$calendar.find('.time-minute').val()) || this.selectedTime.minute || 0,
+          second: parseInt(this.$calendar.find('.time-second').val()) || this.selectedTime.second || 0
+        };
+        console.log(`selectDate: selectedTime set to:`, this.selectedTime);
+      }
+      
+      // Apply value without closing calendar (for datetime, calendar stays open)
+      console.log(`selectDate: calling applySelectedValue, isOpen=${this.isOpen}`);
+      this.applySelectedValue();
+      
+      // For datetime fields, never auto-close calendar (allow time selection)
+      // For date fields, close immediately
+      if (!this.isDateTime && closeCalendar) {
+        console.log(`selectDate: closing calendar (date field)`);
+        this.close();
+      } else {
+        console.log(`selectDate: NOT closing calendar (datetime field or closeCalendar=false), isOpen=${this.isOpen}`);
+      }
+      
+      console.log(`Selected ${this.isDateTime ? 'datetime' : 'date'}:`, this.selectedDate);
+    }
+    
+    applySelectedValue() {
+      console.log(`applySelectedValue called, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
+      
+      // Set flag to prevent calendar from closing during value update
+      this._isApplyingValue = true;
+      console.log(`applySelectedValue: _isApplyingValue set to true`);
+      
+      let jalaliStr;
+      if (this.isDateTime) {
+        jalaliStr = formatJalaliDateTime(
+          this.selectedDate.jy, 
+          this.selectedDate.jm, 
+          this.selectedDate.jd,
+          this.selectedTime.hour,
+          this.selectedTime.minute,
+          this.selectedTime.second
+        );
+      } else {
+        jalaliStr = formatJalaliDate(this.selectedDate.jy, this.selectedDate.jm, this.selectedDate.jd);
+      }
       
       // Convert to Gregorian for storage
       const gregorian = jToG(this.selectedDate.jy, this.selectedDate.jm, this.selectedDate.jd);
-      const gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
+      let gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
+      
+      // Add time for datetime
+      if (this.isDateTime) {
+        gregorianStr += ` ${String(this.selectedTime.hour).padStart(2, '0')}:${String(this.selectedTime.minute).padStart(2, '0')}:${String(this.selectedTime.second).padStart(2, '0')}`;
+      }
       
       console.log(`Converting Jalali ${jalaliStr} to Gregorian ${gregorianStr}`);
       
       // Set the Gregorian value in Frappe's system
       if (this.controlDate && this.controlDate.set_value) {
+        console.log(`applySelectedValue: calling controlDate.set_value`);
         this.controlDate.set_value(gregorianStr);
         this.$input.val(jalaliStr);
+        console.log(`applySelectedValue: set_value called, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
       } else {
         // Fallback: just set the input value
+        console.log(`applySelectedValue: setting input value directly`);
         this.$input.val(jalaliStr);
         this.$input.trigger('change');
+        console.log(`applySelectedValue: change triggered, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
       }
       
-      this.close();
-      console.log(`Selected date: ${jalaliStr} (${gregorianStr})`);
+      // Clear flag after a delay to allow events to complete
+      const self = this;
+      setTimeout(function() {
+        console.log(`applySelectedValue: clearing _isApplyingValue flag after timeout, isOpen=${self.isOpen}`);
+        self._isApplyingValue = false;
+      }, 300);
     }
 
     selectToday() {
@@ -868,6 +1201,42 @@ class JalaliDatepicker {
       
       // Select today's date
       this.selectDate(today.jd);
+    }
+    
+    selectNow() {
+      const now = new Date();
+      const today = gToJ(now);
+      console.log('Now in Jalali:', today);
+      
+      // Update current date to today's month/year
+      this.currentDate = { ...today };
+      
+      // Update time to current time
+      this.selectedTime = {
+        hour: now.getHours(),
+        minute: now.getMinutes(),
+        second: now.getSeconds()
+      };
+      
+      // Update time picker sliders and labels
+      if (this.$calendar && this.$calendar.length) {
+        this.$calendar.find('.time-hour').val(this.selectedTime.hour);
+        this.$calendar.find('.time-minute').val(this.selectedTime.minute);
+        this.$calendar.find('.time-second').val(this.selectedTime.second);
+        // Update value labels
+        this.$calendar.find('.time-hour-value').text(this.selectedTime.hour);
+        this.$calendar.find('.time-minute-value').text(this.selectedTime.minute);
+        this.$calendar.find('.time-second-value').text(this.selectedTime.second);
+      }
+      
+      // Set selected date
+      this.selectedDate = { ...today };
+      
+      // Apply the value
+      this.applySelectedValue();
+      
+      // Close calendar after selecting now
+      this.close();
     }
 
     prevMonth() {
@@ -893,10 +1262,39 @@ class JalaliDatepicker {
     updateDisplay() {
       const value = this.$input.val();
       if (value) {
-        const jalali = parseJalaliDate(value);
-        if (jalali) {
-          this.selectedDate = jalali;
-          this.currentDate = { ...jalali };
+        if (this.isDateTime) {
+          const jalaliDateTime = parseJalaliDateTime(value);
+          if (jalaliDateTime) {
+            this.selectedDate = {
+              jy: jalaliDateTime.jy,
+              jm: jalaliDateTime.jm,
+              jd: jalaliDateTime.jd
+            };
+            this.currentDate = { ...this.selectedDate };
+            if (jalaliDateTime.hour !== undefined) {
+              this.selectedTime = {
+                hour: jalaliDateTime.hour || 0,
+                minute: jalaliDateTime.minute || 0,
+                second: jalaliDateTime.second || 0
+              };
+              // Update time picker sliders and labels if calendar exists
+              if (this.$calendar && this.$calendar.length) {
+                this.$calendar.find('.time-hour').val(this.selectedTime.hour);
+                this.$calendar.find('.time-minute').val(this.selectedTime.minute);
+                this.$calendar.find('.time-second').val(this.selectedTime.second);
+                // Update value labels
+                this.$calendar.find('.time-hour-value').text(this.selectedTime.hour);
+                this.$calendar.find('.time-minute-value').text(this.selectedTime.minute);
+                this.$calendar.find('.time-second-value').text(this.selectedTime.second);
+              }
+            }
+          }
+        } else {
+          const jalali = parseJalaliDate(value);
+          if (jalali) {
+            this.selectedDate = jalali;
+            this.currentDate = { ...jalali };
+          }
         }
       }
       
@@ -1070,9 +1468,10 @@ class JalaliDatepicker {
     }
   }
 
-  // Override Frappe's ControlDate
+  // Override Frappe's ControlDate and ControlDatetime
   function overrideControlsWhenReady() {
-    const hasControls = frappe && frappe.ui && frappe.ui.form && frappe.ui.form.ControlDate;
+    const hasControls = frappe && frappe.ui && frappe.ui.form && 
+                        frappe.ui.form.ControlDate && frappe.ui.form.ControlDatetime;
     if (!hasControls) {
       // Try again after a short delay
       setTimeout(overrideControlsWhenReady, 50);
@@ -1086,16 +1485,15 @@ class JalaliDatepicker {
     }
 
     const BaseControlDate = frappe.ui.form.ControlDate;
+    const BaseControlDatetime = frappe.ui.form.ControlDatetime;
 
     class JalaliControlDate extends BaseControlDate {
       make_input() {
-        // Always call parent first to get standard Frappe input structure
-        super.make_input();
+        console.log(`make_input called for field: ${this.df ? this.df.fieldname : 'unknown'}, jalaliDatepicker exists: ${!!this.jalaliDatepicker}, isOpen: ${this.jalaliDatepicker ? this.jalaliDatepicker.isOpen : 'N/A'}`);
         
-        // Check if we should use Jalali datepicker
-        // If cache is not loaded yet, assume Jalali is enabled (default behavior)
-        let useJalali = true;
-        let display_calendar = "Jalali";
+        // Check if we should use Jalali datepicker BEFORE calling super
+        let useJalali = false;
+        let display_calendar = "Gregorian";
         
         if (calendarSettingsCache !== null) {
           // Settings are loaded - check them
@@ -1111,19 +1509,16 @@ class JalaliDatepicker {
             FIRST_DAY = calendarSettingsCache.firstDay;
           }
         } else {
-          // Settings not loaded yet - start loading in background
-          // For now, use Jalali by default (will be corrected if needed)
+          // Settings not loaded yet - use Gregorian (default Frappe) for now
+          // Will be corrected later if Jalali is enabled
+          // This prevents creating Jalali datepicker when Gregorian is intended
+          useJalali = false;
+          display_calendar = "Gregorian";
+          
+          // Load settings in background and update if needed
           getCalendarSettings().then(settings => {
-            // If settings show Gregorian, we need to switch to Gregorian
-            if (!settings.enabled || settings.calendar?.display_calendar === "Gregorian") {
-              // Remove Jalali datepicker and reinitialize with Gregorian
-              if (this.jalaliDatepicker) {
-                this.removeAirDatepickerInstances();
-                this.jalaliDatepicker = null;
-                // Reinitialize with Gregorian
-                super.make_input();
-              }
-            } else {
+            // If settings show Jalali, we need to switch to Jalali
+            if (settings.enabled && settings.calendar?.display_calendar !== "Gregorian") {
               // Update globals
               if (settings.calendar) {
                 EFFECTIVE_CALENDAR = settings.calendar;
@@ -1131,10 +1526,16 @@ class JalaliDatepicker {
               if (settings.firstDay !== undefined) {
                 FIRST_DAY = settings.firstDay;
               }
-              // Update datepicker if it exists
+              // Reinitialize with Jalali datepicker
+              this.display_calendar = settings.calendar?.display_calendar || "Jalali";
+              // Remove any existing datepicker first
+              this.removeAirDatepickerInstances();
               if (this.jalaliDatepicker) {
-                this.jalaliDatepicker.updateDisplay();
+                this.jalaliDatepicker = null;
               }
+              // Create Jalali datepicker structure
+              this.setupInputWithoutAirDatepicker();
+              this.replaceWithJalaliDatepicker();
             }
           });
         }
@@ -1142,179 +1543,127 @@ class JalaliDatepicker {
         // Store display_calendar for later use
         this.display_calendar = display_calendar;
         
-        // Replace the air-datepicker with our Jalali datepicker (if enabled)
+        // If using Jalali, skip parent make_input and create Jalali datepicker directly
         if (useJalali) {
-          this.replaceWithJalaliDatepicker();
+          // If Jalali datepicker already exists, don't recreate it (preserves open calendar state)
+          if (!this.jalaliDatepicker) {
+            console.log(`make_input: Creating new Jalali datepicker for field: ${this.df ? this.df.fieldname : 'unknown'}`);
+            // Create input structure manually without air-datepicker
+            this.setupInputWithoutAirDatepicker();
+            // Create Jalali datepicker
+            this.replaceWithJalaliDatepicker();
+          } else {
+            console.log(`make_input: Jalali datepicker already exists for field: ${this.df ? this.df.fieldname : 'unknown'}, skipping recreation`);
+            // Datepicker already exists, just ensure setup is correct
+            this.setupInputWithoutAirDatepicker();
+          }
+        } else {
+          // Use default Frappe behavior (Gregorian)
+          super.make_input();
         }
       }
       
-      replaceWithJalaliDatepicker() {
-        // Find the input element
+      setupInputWithoutAirDatepicker() {
+        // Find or create control-input-wrapper and control-input (like Frappe does)
+        let $controlInputWrapper = this.$wrapper.find('.control-input-wrapper');
+        let $controlInput = $controlInputWrapper.length ? $controlInputWrapper.find('.control-input') : null;
+        
+        // Find existing input
         this.$input = this.$wrapper.find('input');
+        
         if (!this.$input.length) {
+          // Create new input
           this.$input = $(`<input class="form-control" type="text">`);
-          this.$wrapper.append(this.$input);
         }
         
-        // Remove any existing air-datepicker instances
-        this.removeAirDatepickerInstances();
+        // Ensure control-input-wrapper exists
+        if (!$controlInputWrapper.length) {
+          $controlInputWrapper = $('<div class="control-input-wrapper"></div>');
+          this.$wrapper.find('.form-group').append($controlInputWrapper);
+        }
         
-        // Remove any air-datepicker-related attributes and classes
+        // Ensure control-input exists
+        if (!$controlInput || !$controlInput.length) {
+          $controlInput = $('<div class="control-input"></div>');
+          $controlInputWrapper.append($controlInput);
+        }
+        
+        // Move input into control-input if it's not already there
+        if (!this.$input.closest('.control-input').length) {
+          this.$input.detach().appendTo($controlInput);
+        }
+        
+        // Set up basic attributes but prevent air-datepicker initialization
+        this.$input.attr('data-fieldtype', this.df.fieldtype || 'Date');
+        this.$input.removeClass('datepicker-input hasDatepicker');
         this.$input.removeAttr('data-date-format');
         this.$input.removeAttr('data-alt-input');
         this.$input.removeAttr('data-alt-format');
-        this.$input.removeClass('datepicker-input');
-        this.$input.removeClass('hasDatepicker');
+        this.$input.removeData('datepicker');
+      }
+      
+      replaceWithJalaliDatepicker() {
+        // If Jalali datepicker already exists, don't recreate it
+        // This prevents calendar from closing when set_value is called
+        if (this.jalaliDatepicker) {
+          const isCalendarOpen = this.jalaliDatepicker.isOpen;
+          console.log(`replaceWithJalaliDatepicker: Jalali datepicker already exists for field: ${this.df ? this.df.fieldname : 'unknown'}, isOpen: ${isCalendarOpen}, skipping recreation`);
+          // Always skip recreation if datepicker exists, not just when open
+          // This prevents any issues with event handlers being reset
+          return;
+        }
+        
+        console.log(`replaceWithJalaliDatepicker: Creating new Jalali datepicker for field: ${this.df ? this.df.fieldname : 'unknown'}`);
+        
+        // Ensure input exists (should already be created by setupInputWithoutAirDatepicker)
+        if (!this.$input || !this.$input.length) {
+          this.setupInputWithoutAirDatepicker();
+        }
+        
+        // Make sure no air-datepicker exists (cleanup just in case)
+        this.removeAirDatepickerInstances();
+        
+        // Ensure no air-datepicker classes or attributes
+        this.$input.removeAttr('data-date-format');
+        this.$input.removeAttr('data-alt-input');
+        this.$input.removeAttr('data-alt-format');
+        this.$input.removeClass('datepicker-input hasDatepicker');
+        this.$input.removeData('datepicker');
         
         // Make input editable for better UX
         this.$input.attr('readonly', false);
         
-        // Apply exact Frappe form control styling to match other fields with higher specificity
-        this.$input.css({
-          'height': 'var(--input-height) !important', // 28px
-          'line-height': 'var(--input-height) !important', // 28px
-          'padding': 'var(--input-padding) !important', // 6px 8px
-          'margin': '0 !important',
-          'vertical-align': 'top !important',
-          'box-sizing': 'border-box !important',
-          'background-color': 'var(--control-bg) !important',
-          'border': '1px solid var(--border-color) !important',
-          'border-radius': 'var(--border-radius-sm) !important',
-          'font-size': 'var(--text-base) !important',
-          'font-weight': 'var(--font-weight-regular) !important',
-          'color': 'var(--text-color) !important',
-          'position': 'relative !important',
-          'z-index': '1 !important',
-          'display': 'block !important',
-          'width': '100% !important'
-        });
+        // Don't override any styling - let Frappe handle all layout, spacing, and alignment
         
-        // Fix the control-input-wrapper to match other fields
-        const $controlInputWrapper = this.$wrapper.find('.control-input-wrapper');
-        if ($controlInputWrapper.length) {
-          $controlInputWrapper.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important',
-            'position': 'relative !important'
-          });
-        }
-        
-        // Fix the control-input to match other fields
-        const $controlInput = this.$wrapper.find('.control-input');
-        if ($controlInput.length) {
-          $controlInput.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important',
-            'position': 'relative !important',
-            'height': 'var(--input-height) !important',
-            'line-height': 'var(--input-height) !important'
-          });
-        }
-        
-        // Ensure wrapper styling matches other fields with higher specificity
-        this.$wrapper.css({
-          'margin': '0 !important',
-          'padding': '0 !important',
-          'vertical-align': 'top !important',
-          'display': 'block !important',
-          'position': 'relative !important',
-          'align-items': 'flex-start !important'
-        });
-        
-        // Ensure form column alignment with higher specificity
-        const $formColumn = this.$input.closest('.form-column');
-        if ($formColumn.length) {
-          $formColumn.css({
-            'vertical-align': 'top !important',
-            'display': 'flex !important',
-            'flex-direction': 'column !important',
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'align-items': 'stretch !important',
-            'justify-content': 'flex-start !important'
-          });
-        }
-        
-        // Target the specific form section to ensure proper alignment
-        const $formSection = this.$input.closest('.form-section');
-        if ($formSection.length) {
-          $formSection.css({
-            'display': 'flex !important',
-            'flex-direction': 'row !important',
-            'align-items': 'flex-start !important'
-          });
-        }
-        
-        // Remove any existing air-datepicker instances
+        // Remove any existing air-datepicker instances BEFORE creating Jalali datepicker
         this.removeAirDatepickerInstances();
         
-        // Create Jalali datepicker
-        this.jalaliDatepicker = new JalaliDatepicker(this.$input[0], this);
+        // Check if this is a datetime field
+        const isDateTime = this.df && this.df.fieldtype === "Datetime";
+        
+        // Mark input as having Jalali datepicker BEFORE creating it
+        this.$input.data('hasJalaliDatepicker', true);
+        this.$input.attr('data-has-jalali-datepicker', 'true');
+        
+        // Create Jalali datepicker (with datetime support if needed)
+        this.jalaliDatepicker = new JalaliDatepicker(this.$input[0], this, isDateTime);
+        
+        // Store reference on input for easy access
+        this.$input.data('jalaliDatepickerInstance', this.jalaliDatepicker);
+        
+        // Prevent Frappe from creating air-datepicker on this input
+        this.$input.removeClass('datepicker-input hasDatepicker');
+        this.$input.off('.datepicker');
         
         // Fix alignment after datepicker creation
         this.fixFieldAlignment();
+        
+        console.log('Jalali datepicker created for field:', this.df ? this.df.fieldname : 'unknown', 'isDateTime:', isDateTime);
       }
       
       fixFieldAlignment() {
-        // Ensure the entire field structure matches other fields
-        const $formGroup = this.$wrapper.find('.form-group');
-        if ($formGroup.length) {
-          $formGroup.css({
-            'margin-bottom': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important'
-          });
-        }
-        
-        // Ensure the clearfix div doesn't affect alignment
-        const $clearfix = this.$wrapper.find('.clearfix');
-        if ($clearfix.length) {
-          $clearfix.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important'
-          });
-        }
-        
-        // Ensure the control-label doesn't affect alignment
-        const $controlLabel = this.$wrapper.find('.control-label');
-        if ($controlLabel.length) {
-          $controlLabel.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important',
-            'line-height': 'normal !important'
-          });
-        }
-        
-        // Ensure the help span doesn't affect alignment
-        const $help = this.$wrapper.find('.help');
-        if ($help.length) {
-          $help.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important'
-          });
-        }
-        
-        // Ensure the help-box doesn't affect alignment
-        const $helpBox = this.$wrapper.find('.help-box');
-        if ($helpBox.length) {
-          $helpBox.css({
-            'margin': '0 !important',
-            'padding': '0 !important',
-            'vertical-align': 'top !important',
-            'display': 'block !important'
-          });
-        }
+        // Don't override spacing - let Frappe settings control margins and paddings
+        // Only ensure essential positioning for datepicker to work correctly
       }
       
       removeAirDatepickerInstances() {
@@ -1351,6 +1700,8 @@ class JalaliDatepicker {
       }
 
       set_formatted_input(value) {
+        console.log(`set_formatted_input called for field: ${this.df ? this.df.fieldname : 'unknown'}, value: ${value}, jalaliDatepicker exists: ${!!this.jalaliDatepicker}, isOpen: ${this.jalaliDatepicker ? this.jalaliDatepicker.isOpen : 'N/A'}`);
+        
         try {
           // Check cache first
           const useJalali = calendarSettingsCache === null || 
@@ -1371,6 +1722,20 @@ class JalaliDatepicker {
           if (!useJalali || display_calendar === "Gregorian") {
             // Use default Frappe behavior - show Gregorian dates as-is
             // Don't convert to Jalali
+            // Make sure Jalali datepicker is removed if it exists
+            if (this.jalaliDatepicker) {
+              this.removeAirDatepickerInstances();
+              this.jalaliDatepicker = null;
+              // Reinitialize with default Frappe datepicker
+              if (this.$input && this.$input.length) {
+                // Remove any Jalali-specific attributes
+                this.$input.removeAttr('data-has-jalali-datepicker');
+                this.$input.removeData('hasJalaliDatepicker');
+                this.$input.removeData('jalaliDatepickerInstance');
+                // Remove Jalali datepicker DOM element
+                this.$input.siblings('.jalali-datepicker').remove();
+              }
+            }
             console.log('set_formatted_input - Using Gregorian calendar, no conversion');
             return super.set_formatted_input(value);
           }
@@ -1380,28 +1745,55 @@ class JalaliDatepicker {
 
           // Convert Gregorian to Jalali for display (only when Jalali is enabled)
           if (value) {
-            console.log('set_formatted_input - Input value:', value, 'Display calendar:', display_calendar);
+            const isDateTimeField = this.df && this.df.fieldtype === "Datetime";
+            console.log('set_formatted_input - Input value:', value, 'Display calendar:', display_calendar, 'Is DateTime:', isDateTimeField);
             
             // Parse the date more carefully
             let gregorianDate;
+            let timePart = null;
+            
             if (typeof value === 'string') {
-              // Handle different date formats
-              if (value.includes('T')) {
+              // Handle datetime format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM"
+              if (value.includes(' ')) {
+                const parts = value.split(' ');
+                gregorianDate = new Date(parts[0] + 'T' + (parts[1] || '00:00:00'));
+                timePart = parts[1] || '00:00:00';
+              } else if (value.includes('T')) {
+                const parts = value.split('T');
                 gregorianDate = new Date(value);
+                timePart = parts[1] || '00:00:00';
               } else if (value.includes('-')) {
                 gregorianDate = new Date(value + 'T00:00:00');
+                timePart = '00:00:00';
               } else {
                 gregorianDate = new Date(value);
               }
             } else {
               gregorianDate = new Date(value);
+              if (gregorianDate) {
+                const hours = gregorianDate.getHours();
+                const minutes = gregorianDate.getMinutes();
+                const seconds = gregorianDate.getSeconds();
+                timePart = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+              }
             }
             
-            console.log('set_formatted_input - Parsed date:', gregorianDate);
+            console.log('set_formatted_input - Parsed date:', gregorianDate, 'Time part:', timePart);
             
             if (!isNaN(gregorianDate.getTime())) {
               const jalali = gToJ(gregorianDate);
-              const jalaliStr = formatJalaliDate(jalali.jy, jalali.jm, jalali.jd);
+              let jalaliStr;
+              
+              if (isDateTimeField && timePart) {
+                jalaliStr = formatJalaliDateTime(jalali.jy, jalali.jm, jalali.jd, 
+                  parseInt(timePart.split(':')[0]) || 0,
+                  parseInt(timePart.split(':')[1]) || 0,
+                  parseInt(timePart.split(':')[2]) || 0
+                );
+              } else {
+                jalaliStr = formatJalaliDate(jalali.jy, jalali.jm, jalali.jd);
+              }
+              
               console.log('set_formatted_input - Jalali:', jalali, 'String:', jalaliStr);
               this.$input.val(jalaliStr);
               
@@ -1422,54 +1814,158 @@ class JalaliDatepicker {
       }
     }
 
+    // Override ControlDate
     frappe.ui.form.ControlDate = JalaliControlDate;
     console.log("ControlDate patched for Jalali");
+    
+    // Override ControlDatetime - it should inherit from JalaliControlDate
+    // But we need to make sure datetime-specific methods are preserved
+    class JalaliControlDatetime extends JalaliControlDate {
+      // ControlDatetime extends ControlDate, so JalaliControlDatetime should extend JalaliControlDate
+      // This ensures datetime fields also use Jalali datepicker
+      
+      // Override make_input to ensure datetime fields are treated correctly
+      make_input() {
+        // Call parent (JalaliControlDate.make_input) which will handle Jalali datepicker
+        super.make_input();
+        
+        // For datetime fields, if we're using Gregorian (no Jalali datepicker), 
+        // we need to call set_date_options to configure the time picker
+        if (!this.jalaliDatepicker && BaseControlDatetime.prototype.set_date_options) {
+          // Call the base ControlDatetime's set_date_options to configure time picker
+          BaseControlDatetime.prototype.set_date_options.call(this);
+        }
+      }
+      
+      // Preserve ControlDatetime's set_date_options to ensure timepicker is configured
+      set_date_options() {
+        // Check if we should use Jalali (if Jalali datepicker exists, we handle time ourselves)
+        if (this.jalaliDatepicker) {
+        // Don't call super.set_date_options() as we handle datepicker ourselves
+          return;
+        }
+        // For Gregorian, call the base ControlDatetime's set_date_options to configure time picker
+        // This ensures the default Frappe time picker is properly configured
+        return BaseControlDatetime.prototype.set_date_options.call(this);
+      }
+      
+      // Preserve other ControlDatetime methods that might be needed
+      get_now_date() {
+        return frappe.datetime.now_datetime(true);
+      }
+      
+      set_formatted_input(value) {
+        // For datetime fields, we still want to use our Jalali formatting
+        // Call parent's set_formatted_input which handles Jalali conversion
+        return super.set_formatted_input(value);
+      }
+    }
+    
+    frappe.ui.form.ControlDatetime = JalaliControlDatetime;
+    console.log("ControlDatetime patched for Jalali");
   }
 
   // Function to remove all existing air-datepicker instances from the page
   function removeAllAirDatepickerInstances() {
-    // Remove all air-datepicker calendars
-    $('.air-datepicker').remove();
-    
-    // Remove air-datepicker classes and attributes from all inputs
-    $('input.datepicker-input, input.hasDatepicker').each(function() {
-      $(this).removeClass('datepicker-input hasDatepicker');
-      $(this).removeAttr('data-date-format');
-      $(this).removeAttr('data-alt-input');
-      $(this).removeAttr('data-alt-format');
-      $(this).removeData('datepicker');
+    // Only target inputs that don't have jalali-datepicker
+    const $airDatepickerInputs = $('input.datepicker-input, input.hasDatepicker').filter(function() {
+      // Skip inputs that already have jalali-datepicker instance
+      const $input = $(this);
+      // Check multiple ways to identify Jalali datepicker
+      const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
+      const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
+      const jalaliInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
+      const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
       
-      // Remove event listeners
-      $(this).off('.datepicker');
+      // Skip if any Jalali datepicker indicator is present
+      return !hasJalaliAttr && !hasJalaliData && !jalaliInstance && !jalaliDataInstance;
     });
     
-    // Remove any datepicker icons or buttons
-    $('.datepicker-icon, .datepicker-btn').remove();
+    // Only proceed if there are actual air-datepicker instances to remove
+    const hasAirDatepicker = $('.air-datepicker').length > 0 || $airDatepickerInputs.length > 0;
+    
+    if (!hasAirDatepicker) {
+      // No air-datepicker instances found, skip removal to avoid unnecessary processing
+      return;
+    }
+    
+    // Remove all air-datepicker calendars (but not jalali-datepicker)
+    $('.air-datepicker').not('.jalali-datepicker').remove();
+    
+    // Remove air-datepicker classes and attributes from filtered inputs only
+    $airDatepickerInputs.each(function() {
+      const $input = $(this);
+      // Double check this input doesn't have jalali-datepicker
+      const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
+      const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
+      const jalaliInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
+      const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
+      
+      if (hasJalaliAttr || hasJalaliData || jalaliInstance || jalaliDataInstance) {
+        return; // Skip this input
+      }
+      
+      $input.removeClass('datepicker-input hasDatepicker');
+      $input.removeAttr('data-date-format');
+      $input.removeAttr('data-alt-input');
+      $input.removeAttr('data-alt-format');
+      $input.removeData('datepicker');
+      
+      // Remove event listeners
+      $input.off('.datepicker');
+    });
+    
+    // Remove any datepicker icons or buttons (but not jalali datepicker buttons)
+    $('.datepicker-icon, .datepicker-btn').not('.jalali-datepicker .today-btn, .jalali-datepicker .now-btn').remove();
     
     // Remove any air-datepicker instances from global scope
-    if (window.Datepicker) {
+    if (window.Datepicker && window.Datepicker.instances) {
       try {
-        // Try to destroy all instances
-        Object.keys(window.Datepicker.instances || {}).forEach(key => {
+        // Try to destroy all instances that are not our Jalali datepickers
+        Object.keys(window.Datepicker.instances).forEach(key => {
           try {
-            window.Datepicker.instances[key].destroy();
+            const instance = window.Datepicker.instances[key];
+            // Only destroy if it's a real air-datepicker instance
+            // Check if the input has jalali-datepicker sibling
+            if (instance && instance.el) {
+              const $el = $(instance.el);
+              const hasJalaliSibling = $el.siblings('.jalali-datepicker').length > 0;
+              if (!hasJalaliSibling && !$el.data('jalaliDatepickerInstance')) {
+                instance.destroy();
+              }
+            }
           } catch(e) {
-            console.log('Error destroying air-datepicker instance:', e);
+            // Silently ignore errors for individual instances
           }
         });
       } catch(e) {
-        console.log('Error accessing air-datepicker instances:', e);
+        // Silently ignore errors accessing instances
       }
     }
-    
-    console.log('Removed all air-datepicker instances from the page');
   }
   
   // Remove existing air-datepicker instances immediately
   removeAllAirDatepickerInstances();
   
   // Also remove them periodically to catch any dynamically created ones
-  setInterval(removeAllAirDatepickerInstances, 1000);
+  // Use longer interval and only remove if needed
+  setInterval(function() {
+    // Only run cleanup if there are actual air-datepicker instances
+    if ($('.air-datepicker').not('.jalali-datepicker').length > 0 || 
+        $('input.datepicker-input, input.hasDatepicker').filter(function() {
+          const $input = $(this);
+          // Check all ways to identify Jalali datepicker
+          const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
+          const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
+          const jalaliSiblingInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
+          const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
+          
+          // Return true only if NO Jalali datepicker indicators are present
+          return !hasJalaliAttr && !hasJalaliData && !jalaliSiblingInstance && !jalaliDataInstance;
+        }).length > 0) {
+      removeAllAirDatepickerInstances();
+    }
+  }, 2000); // Changed from 1000ms to 2000ms to be less aggressive
 
   // Start overriding
   overrideControlsWhenReady();
