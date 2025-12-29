@@ -256,9 +256,9 @@ desktop_items = ["jalali_settings"]
 # Import at module level to ensure early loading
 try:
     import persian_calendar.jalali_support.formatters
-    print("Jalali formatters imported successfully")
 except Exception as e:
-    print(f"Error importing Jalali formatters: {e}")
+    # Silently fail - formatters will be set up in before_request hook
+    pass
 
 # Request Events
 # ----------------

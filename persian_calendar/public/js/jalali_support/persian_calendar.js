@@ -1565,36 +1565,102 @@ class JalaliDatepicker {
       
       setupInputWithoutAirDatepicker() {
         // Find or create control-input-wrapper and control-input (like Frappe does)
+        // First, ensure $wrapper exists - for query reports/page forms, it might not be set
+        if (!this.$wrapper || !this.$wrapper.length) {
+          // Try to find wrapper from form-group containing the input
+          if (this.$input && this.$input.length) {
+            this.$wrapper = this.$input.closest('.frappe-control, .form-group');
+          } else if (this.df && this.df.fieldname) {
+            // Try to find by fieldname
+            this.$wrapper = $(`.frappe-control[data-fieldname="${this.df.fieldname}"], .form-group[data-fieldname="${this.df.fieldname}"]`);
+          }
+        }
+        
+        // If still no wrapper, try to find it from the input
+        if ((!this.$wrapper || !this.$wrapper.length) && this.$input && this.$input.length) {
+          this.$wrapper = this.$input.closest('.frappe-control, .form-group');
+        }
+        
+        // Find existing input if not already set
+        if (!this.$input || !this.$input.length) {
+          if (this.$wrapper && this.$wrapper.length) {
+            this.$input = this.$wrapper.find('input');
+          } else if (this.df && this.df.fieldname) {
+            // Try to find input by fieldname
+            this.$input = $(`input[data-fieldname="${this.df.fieldname}"]`);
+          }
+        }
+        
+        if (!this.$input || !this.$input.length) {
+          // Create new input only if wrapper exists
+          if (this.$wrapper && this.$wrapper.length) {
+            this.$input = $(`<input class="form-control" type="text">`);
+          } else {
+            console.error('setupInputWithoutAirDatepicker: Cannot find input or wrapper for field:', this.df ? this.df.fieldname : 'unknown');
+            return;
+          }
+        }
+        
+        // Ensure wrapper exists
+        if (!this.$wrapper || !this.$wrapper.length) {
+          this.$wrapper = this.$input.closest('.frappe-control, .form-group');
+          if (!this.$wrapper || !this.$wrapper.length) {
+            // Create a minimal wrapper if none exists
+            this.$wrapper = this.$input.parent();
+          }
+        }
+        
+        // Make sure wrapper and input are visible (not hidden)
+        if (this.$wrapper && this.$wrapper.length) {
+          this.$wrapper.show();
+        }
+        if (this.$input && this.$input.length) {
+          this.$input.show();
+        }
+        
+        // For query reports/page forms, inputs are usually directly in the form-group
+        // Don't try to wrap them in control-input-wrapper if they're already positioned correctly
+        const isInPageForm = this.$wrapper.closest('.page-form, .query-report').length > 0;
+        
         let $controlInputWrapper = this.$wrapper.find('.control-input-wrapper');
         let $controlInput = $controlInputWrapper.length ? $controlInputWrapper.find('.control-input') : null;
         
-        // Find existing input
-        this.$input = this.$wrapper.find('input');
-        
-        if (!this.$input.length) {
-          // Create new input
-          this.$input = $(`<input class="form-control" type="text">`);
-        }
-        
-        // Ensure control-input-wrapper exists
-        if (!$controlInputWrapper.length) {
-          $controlInputWrapper = $('<div class="control-input-wrapper"></div>');
-          this.$wrapper.find('.form-group').append($controlInputWrapper);
-        }
-        
-        // Ensure control-input exists
-        if (!$controlInput || !$controlInput.length) {
-          $controlInput = $('<div class="control-input"></div>');
-          $controlInputWrapper.append($controlInput);
-        }
-        
-        // Move input into control-input if it's not already there
-        if (!this.$input.closest('.control-input').length) {
-          this.$input.detach().appendTo($controlInput);
+        // For page forms/query reports, if input is already positioned correctly, don't wrap it
+        if (isInPageForm && (this.$input.parent().hasClass('form-group') || 
+            this.$input.parent().is('.frappe-control, .form-group'))) {
+          // Input is already in the right place, just ensure it's visible
+          // Don't wrap it in control-input-wrapper
+        } else {
+          // Ensure control-input-wrapper exists
+          if (!$controlInputWrapper.length) {
+            $controlInputWrapper = $('<div class="control-input-wrapper"></div>');
+            // Try to find form-group or append to wrapper
+            const $formGroup = this.$wrapper.find('.form-group').first();
+            if ($formGroup.length) {
+              $formGroup.append($controlInputWrapper);
+            } else {
+              this.$wrapper.append($controlInputWrapper);
+            }
+          }
+          
+          // Ensure control-input exists
+          if (!$controlInput || !$controlInput.length) {
+            $controlInput = $('<div class="control-input"></div>');
+            $controlInputWrapper.append($controlInput);
+          }
+          
+          // Move input into control-input if it's not already there
+          if (!this.$input.closest('.control-input').length) {
+            this.$input.detach().appendTo($controlInput);
+          }
         }
         
         // Set up basic attributes but prevent air-datepicker initialization
-        this.$input.attr('data-fieldtype', this.df.fieldtype || 'Date');
+        if (this.df && this.df.fieldtype) {
+          this.$input.attr('data-fieldtype', this.df.fieldtype);
+        } else {
+          this.$input.attr('data-fieldtype', this.$input.attr('data-fieldtype') || 'Date');
+        }
         this.$input.removeClass('datepicker-input hasDatepicker');
         this.$input.removeAttr('data-date-format');
         this.$input.removeAttr('data-alt-input');
@@ -1969,6 +2035,160 @@ class JalaliDatepicker {
 
   // Start overriding
   overrideControlsWhenReady();
+
+  // Function to handle date fields in query reports and page forms
+  async function initializeDateFieldsInPageForms() {
+    try {
+      const settings = await getCalendarSettings();
+      if (!settings.enabled || settings.calendar?.display_calendar === "Gregorian") {
+        return;
+      }
+
+      // Find all date inputs that don't have Jalali datepicker yet
+      const $dateInputs = $('input[data-fieldtype="Date"], input[data-fieldtype="Datetime"]').filter(function() {
+        const $input = $(this);
+        // Skip if already has Jalali datepicker
+        const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
+        const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
+        const jalaliInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
+        const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
+        
+        // Skip if already has Jalali datepicker
+        if (hasJalaliAttr || hasJalaliData || jalaliInstance || jalaliDataInstance) {
+          return false;
+        }
+        
+        // Check if this input is inside a page-form (query reports) or standalone
+        // We want to handle these inputs
+        const $frappeControl = $input.closest('.frappe-control');
+        if ($frappeControl.length > 0) {
+          // Check if this is inside a page-form (query reports)
+          const $pageForm = $input.closest('.page-form, .query-report');
+          if ($pageForm.length > 0) {
+            // This is in a query report, we should initialize it
+            return true;
+          }
+          
+          // Check if this is clearly part of a regular form (has .form-section as ancestor but not .page-form)
+          const $formSection = $input.closest('.form-section, .form-layout');
+          if ($formSection.length > 0 && $pageForm.length === 0) {
+            // This is likely a form field, let make_input handle it
+            return false;
+          }
+        }
+        
+        return true;
+      });
+
+      if ($dateInputs.length === 0) {
+        return;
+      }
+
+      console.log(`Found ${$dateInputs.length} date inputs in page forms/query reports to initialize`);
+
+      $dateInputs.each(function() {
+        const $input = $(this);
+        const fieldtype = $input.attr('data-fieldtype') || 'Date';
+        const fieldname = $input.attr('data-fieldname') || '';
+        
+        // Make sure input and its wrapper are visible
+        const $wrapper = $input.closest('.frappe-control, .form-group');
+        if ($wrapper.length) {
+          $wrapper.show();
+        }
+        $input.show();
+        
+        // Skip if already has Jalali datepicker
+        if ($input.attr('data-has-jalali-datepicker') === 'true' || 
+            $input.data('hasJalaliDatepicker') === true ||
+            $input.siblings('.jalali-datepicker').length > 0) {
+          return;
+        }
+
+        try {
+          // Create a minimal control object for compatibility
+          const fakeControl = {
+            df: {
+              fieldtype: fieldtype,
+              fieldname: fieldname
+            },
+            $wrapper: $wrapper.length ? $wrapper : $input.parent(),
+            $input: $input,
+            set_value: function(value) {
+              $input.val(value).trigger('change');
+            }
+          };
+
+          // Create Jalali datepicker
+          const isDateTime = fieldtype === "Datetime";
+          const jalaliDatepicker = new JalaliDatepicker($input[0], fakeControl, isDateTime);
+          
+          // Store references
+          $input.data('hasJalaliDatepicker', true);
+          $input.attr('data-has-jalali-datepicker', 'true');
+          $input.data('jalaliDatepickerInstance', jalaliDatepicker);
+          
+          // Convert existing value if present
+          const currentValue = $input.val();
+          if (currentValue) {
+            try {
+              // Parse as Gregorian and convert to Jalali
+              const dateParts = currentValue.split(' ');
+              const dateStr = dateParts[0];
+              const timeStr = dateParts[1] || '';
+              
+              if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                const gDate = new Date(dateStr + (timeStr ? 'T' + timeStr : 'T00:00:00'));
+                if (!isNaN(gDate.getTime())) {
+                  const jalali = gToJ(gDate);
+                  let jalaliStr;
+                  if (isDateTime && timeStr) {
+                    const timeParts = timeStr.split(':');
+                    jalaliStr = formatJalaliDateTime(
+                      jalali.jy, jalali.jm, jalali.jd,
+                      parseInt(timeParts[0]) || 0,
+                      parseInt(timeParts[1]) || 0,
+                      parseInt(timeParts[2]) || 0
+                    );
+                  } else {
+                    jalaliStr = formatJalaliDate(jalali.jy, jalali.jm, jalali.jd);
+                  }
+                  $input.val(jalaliStr);
+                  jalaliDatepicker.updateDisplay();
+                }
+              }
+            } catch(e) {
+              console.log('Error converting date value:', e);
+            }
+          }
+          
+          console.log('Initialized Jalali datepicker for field:', fieldname || fieldtype);
+        } catch(e) {
+          console.log('Error initializing Jalali datepicker for input:', e);
+        }
+      });
+    } catch(e) {
+      console.log('Error in initializeDateFieldsInPageForms:', e);
+    }
+  }
+
+  // Initialize date fields in page forms/query reports
+  // Run after a delay to ensure DOM is ready
+  setTimeout(function() {
+    initializeDateFieldsInPageForms();
+  }, 500);
+
+  // Also run when page content changes (for dynamic content)
+  $(document).on('frappe.breadcrumbs.loaded frappe.route.loaded page-change', function() {
+    setTimeout(function() {
+      initializeDateFieldsInPageForms();
+    }, 300);
+  });
+
+  // Also run periodically to catch dynamically added fields
+  setInterval(function() {
+    initializeDateFieldsInPageForms();
+  }, 3000);
 
   // Override Fiscal Year defaults to Jalali year boundaries when enabled
   try {
