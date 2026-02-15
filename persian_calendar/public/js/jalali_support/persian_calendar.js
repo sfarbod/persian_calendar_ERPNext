@@ -1774,7 +1774,11 @@ class JalaliDatepicker {
               }
             }
             console.log('set_formatted_input - Using Gregorian calendar, no conversion');
-            return super.set_formatted_input(value);
+            // Use correct base so Datetime fields get value (incl. time) set correctly; avoids "Not Saved" / broken actions
+            if (this.df && this.df.fieldtype === "Datetime") {
+              return BaseControlDatetime.prototype.set_formatted_input.call(this, value);
+            }
+            return BaseControlDate.prototype.set_formatted_input.call(this, value);
           }
 
           // Jalali calendar - convert Gregorian to Jalali for display
@@ -1889,6 +1893,14 @@ class JalaliDatepicker {
       // Preserve other ControlDatetime methods that might be needed
       get_now_date() {
         return frappe.datetime.now_datetime(true);
+      }
+
+      get_value() {
+        // When using Gregorian (no Jalali datepicker), use base Datetime get_value so datetime string matches doc and form is not stuck "Not Saved"
+        if (!this.jalaliDatepicker) {
+          return BaseControlDatetime.prototype.get_value.call(this);
+        }
+        return super.get_value();
       }
       
       set_formatted_input(value) {
