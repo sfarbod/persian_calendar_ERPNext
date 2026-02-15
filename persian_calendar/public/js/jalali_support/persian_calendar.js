@@ -1491,75 +1491,46 @@ class JalaliDatepicker {
       make_input() {
         console.log(`make_input called for field: ${this.df ? this.df.fieldname : 'unknown'}, jalaliDatepicker exists: ${!!this.jalaliDatepicker}, isOpen: ${this.jalaliDatepicker ? this.jalaliDatepicker.isOpen : 'N/A'}`);
         
-        // Check if we should use Jalali datepicker BEFORE calling super
         let useJalali = false;
         let display_calendar = "Gregorian";
         
         if (calendarSettingsCache !== null) {
-          // Settings are loaded - check them
           useJalali = calendarSettingsCache.enabled && 
                      calendarSettingsCache.calendar?.display_calendar !== "Gregorian";
           display_calendar = calendarSettingsCache.calendar?.display_calendar || "Jalali";
-          
-          // Update globals
-          if (calendarSettingsCache.calendar) {
-            EFFECTIVE_CALENDAR = calendarSettingsCache.calendar;
-          }
-          if (calendarSettingsCache.firstDay !== undefined) {
-            FIRST_DAY = calendarSettingsCache.firstDay;
-          }
+          if (calendarSettingsCache.calendar) EFFECTIVE_CALENDAR = calendarSettingsCache.calendar;
+          if (calendarSettingsCache.firstDay !== undefined) FIRST_DAY = calendarSettingsCache.firstDay;
         } else {
-          // Settings not loaded yet - use Gregorian (default Frappe) for now
-          // Will be corrected later if Jalali is enabled
-          // This prevents creating Jalali datepicker when Gregorian is intended
-          useJalali = false;
-          display_calendar = "Gregorian";
-          
-          // Load settings in background and update if needed
+          // Settings not loaded yet: assume Gregorian so user preference "Gregorian" works; will switch to Jalali only if settings say so
           getCalendarSettings().then(settings => {
-            // If settings show Jalali, we need to switch to Jalali
             if (settings.enabled && settings.calendar?.display_calendar !== "Gregorian") {
-              // Update globals
-              if (settings.calendar) {
-                EFFECTIVE_CALENDAR = settings.calendar;
-              }
-              if (settings.firstDay !== undefined) {
-                FIRST_DAY = settings.firstDay;
-              }
-              // Reinitialize with Jalali datepicker
+              if (settings.calendar) EFFECTIVE_CALENDAR = settings.calendar;
+              if (settings.firstDay !== undefined) FIRST_DAY = settings.firstDay;
               this.display_calendar = settings.calendar?.display_calendar || "Jalali";
-              // Remove any existing datepicker first
               this.removeAirDatepickerInstances();
-              if (this.jalaliDatepicker) {
-                this.jalaliDatepicker = null;
-              }
-              // Create Jalali datepicker structure
+              if (this.jalaliDatepicker) this.jalaliDatepicker = null;
               this.setupInputWithoutAirDatepicker();
               this.replaceWithJalaliDatepicker();
             }
           });
         }
         
-        // Store display_calendar for later use
         this.display_calendar = display_calendar;
         
-        // If using Jalali, skip parent make_input and create Jalali datepicker directly
         if (useJalali) {
-          // If Jalali datepicker already exists, don't recreate it (preserves open calendar state)
           if (!this.jalaliDatepicker) {
-            console.log(`make_input: Creating new Jalali datepicker for field: ${this.df ? this.df.fieldname : 'unknown'}`);
-            // Create input structure manually without air-datepicker
             this.setupInputWithoutAirDatepicker();
-            // Create Jalali datepicker
             this.replaceWithJalaliDatepicker();
           } else {
-            console.log(`make_input: Jalali datepicker already exists for field: ${this.df ? this.df.fieldname : 'unknown'}, skipping recreation`);
-            // Datepicker already exists, just ensure setup is correct
             this.setupInputWithoutAirDatepicker();
           }
         } else {
-          // Use default Frappe behavior (Gregorian)
-          super.make_input();
+          // User preference is Gregorian: use correct Frappe base (Datetime for time fields so save works)
+          if (this.df && this.df.fieldtype === "Datetime") {
+            BaseControlDatetime.prototype.make_input.call(this);
+          } else {
+            BaseControlDate.prototype.make_input.call(this);
+          }
         }
       }
       
