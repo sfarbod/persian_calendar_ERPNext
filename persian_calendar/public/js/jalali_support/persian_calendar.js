@@ -136,6 +136,24 @@
     };
   }
 
+  /** Convert input value (Jalali string) to Gregorian so it matches doc and form is not stuck "Not Saved" */
+  function jalaliInputToGregorianStr(val, isDateTime) {
+    if (!val || typeof val !== 'string') return val;
+    const trimmed = val.trim();
+    if (!trimmed) return val;
+    const parsed = isDateTime ? parseJalaliDateTime(trimmed) : parseJalaliDate(trimmed);
+    if (!parsed || parsed.jy < 1300 || parsed.jy > 1500) return val;
+    const g = jToG(parsed.jy, parsed.jm, parsed.jd);
+    const dateStr = `${g.gy}-${String(g.gm).padStart(2,'0')}-${String(g.gd).padStart(2,'0')}`;
+    if (isDateTime && parsed.hour !== undefined) {
+      const h = String(parsed.hour || 0).padStart(2,'0');
+      const m = String(parsed.minute || 0).padStart(2,'0');
+      const s = String(parsed.second || 0).padStart(2,'0');
+      return `${dateStr} ${h}:${m}:${s}`;
+    }
+    return dateStr;
+  }
+
 // Global function to close all Jalali datepickers
 function closeAllJalaliDatepickers() {
   $('.jalali-datepicker').each(function() {
@@ -1853,6 +1871,18 @@ class JalaliDatepicker {
           return super.set_formatted_input(value);
         }
       }
+
+      get_value() {
+        // When displaying Jalali, input holds Jalali string; return Gregorian so it matches doc and form is not stuck "Not Saved"
+        if (this.jalaliDatepicker && this.$input && this.$input.length) {
+          const raw = this.$input.val();
+          if (raw) {
+            const greg = jalaliInputToGregorianStr(raw, false);
+            if (greg !== raw) return greg;
+          }
+        }
+        return BaseControlDate.prototype.get_value.call(this);
+      }
     }
 
     // Override ControlDate
@@ -1896,11 +1926,18 @@ class JalaliDatepicker {
       }
 
       get_value() {
-        // When using Gregorian (no Jalali datepicker), use base Datetime get_value so datetime string matches doc and form is not stuck "Not Saved"
         if (!this.jalaliDatepicker) {
           return BaseControlDatetime.prototype.get_value.call(this);
         }
-        return super.get_value();
+        // When displaying Jalali, input holds Jalali string; return Gregorian so it matches doc and form is not stuck "Not Saved"
+        if (this.$input && this.$input.length) {
+          const raw = this.$input.val();
+          if (raw) {
+            const greg = jalaliInputToGregorianStr(raw, true);
+            if (greg !== raw) return greg;
+          }
+        }
+        return BaseControlDatetime.prototype.get_value.call(this);
       }
       
       set_formatted_input(value) {
