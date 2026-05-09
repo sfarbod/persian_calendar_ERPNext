@@ -252,14 +252,6 @@ scheduler_events = {
 fixtures = ["Custom Field"]
 desktop_items = ["jalali_settings"]
 
-# Import formatters to override date formatting for exports
-# Import at module level to ensure early loading
-try:
-    import persian_calendar.jalali_support.formatters
-except Exception as e:
-    # Silently fail - formatters will be set up in before_request hook
-    pass
-
 # Request Events
 # ----------------
 before_request = [

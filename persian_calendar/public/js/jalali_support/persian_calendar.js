@@ -1,7 +1,6 @@
 (function() {
   frappe.provide("frappe.ui.form");
 
-  console.log("jalali_support script loaded");
 
   // Global variables - will be populated asynchronously
   let jalaliEnabled = null; // null = not checked yet, true/false = checked
@@ -31,7 +30,6 @@
         // Check if Jalali calendar is enabled
         const result = await frappe.call({ method: "persian_calendar.jalali_support.api.is_jalali_enabled" });
         jalaliEnabled = result && result.message;
-        console.log("Jalali calendar enabled:", jalaliEnabled);
         
         if (!jalaliEnabled) {
           calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
@@ -42,7 +40,6 @@
         const r = await frappe.call({ method: "persian_calendar.jalali_support.api.get_effective_calendar" });
         if (r && r.message) {
           EFFECTIVE_CALENDAR = r.message;
-          console.log("Effective calendar settings:", EFFECTIVE_CALENDAR);
         }
         
         FIRST_DAY = EFFECTIVE_CALENDAR.week_start || 6;
@@ -54,7 +51,6 @@
         };
         return calendarSettingsCache;
       } catch(e) {
-        console.log("Error fetching calendar settings:", e);
         jalaliEnabled = false;
         calendarSettingsCache = { enabled: false, calendar: { display_calendar: "Gregorian" } };
         return calendarSettingsCache;
@@ -67,31 +63,35 @@
   // Start loading calendar settings immediately (but don't wait)
   getCalendarSettings();
 
-  // Helper functions
+  // Helper functions — use window.toJalali / window.toGregorian from jalaali.js; Intl fallback for display if missing.
   function gToJ(gDate) {
-    // Check if toJalali is available (from jalaali.js)
-    if (typeof toJalali === 'undefined' && typeof window.toJalali !== 'undefined') {
-      window.toJalali = window.toJalali;
-    }
-    if (typeof toJalali === 'undefined') {
-      console.error("toJalali function is not available! Make sure jalaali.js is loaded.");
-      // Fallback: return a dummy object
+    if (!gDate || isNaN(gDate.getTime())) {
       return { jy: 1400, jm: 1, jd: 1 };
     }
-    return toJalali(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
+    const toJ = typeof window !== "undefined" && window.toJalali;
+    if (toJ) {
+      return toJ(gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate());
+    }
+    try {
+      const fmt = new Intl.DateTimeFormat("en-u-ca-persian", { year: "numeric", month: "2-digit", day: "2-digit" });
+      const parts = fmt.formatToParts(gDate);
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      return {
+        jy: parseInt(map.year, 10),
+        jm: parseInt(map.month, 10),
+        jd: parseInt(map.day, 10),
+      };
+    } catch (e) {
+      return { jy: gDate.getFullYear(), jm: gDate.getMonth() + 1, jd: gDate.getDate() };
+    }
   }
 
   function jToG(jy, jm, jd) {
-    // Check if toGregorian is available (from jalaali.js)
-    if (typeof toGregorian === 'undefined' && typeof window.toGregorian !== 'undefined') {
-      window.toGregorian = window.toGregorian;
+    const toG = typeof window !== "undefined" && window.toGregorian;
+    if (toG) {
+      return toG(jy, jm, jd);
     }
-    if (typeof toGregorian === 'undefined') {
-      console.error("toGregorian function is not available! Make sure jalaali.js is loaded.");
-      // Fallback: return a dummy object
-      return { gy: 2021, gm: 1, gd: 1 };
-    }
-    return toGregorian(jy, jm, jd);
+    return null;
   }
 
   function formatJalaliDate(jy, jm, jd) {
@@ -144,6 +144,7 @@
     const parsed = isDateTime ? parseJalaliDateTime(trimmed) : parseJalaliDate(trimmed);
     if (!parsed || parsed.jy < 1300 || parsed.jy > 1500) return val;
     const g = jToG(parsed.jy, parsed.jm, parsed.jd);
+    if (!g) return val;
     const dateStr = `${g.gy}-${String(g.gm).padStart(2,'0')}-${String(g.gd).padStart(2,'0')}`;
     if (isDateTime && parsed.hour !== undefined) {
       const h = String(parsed.hour || 0).padStart(2,'0');
@@ -169,7 +170,6 @@ function closeAllJalaliDatepickers() {
   // No need to remove global handlers here if each instance manages its own
   // The keydown handler is now instance-specific, so no global off needed here.
   
-  console.log('All Jalali datepickers closed');
 }
 
 // Enhanced Jalali Datepicker Class
@@ -434,7 +434,6 @@ class JalaliDatepicker {
       this.$calendar = $(calendarHTML);
       this.$input.after(this.$calendar);
       
-      console.log("Jalali datepicker created");
     }
 
     bindEvents() {
@@ -554,6 +553,10 @@ class JalaliDatepicker {
             );
             // Convert to Gregorian for storage
             const gregorian = jToG(self.selectedDate.jy, self.selectedDate.jm, self.selectedDate.jd);
+            if (!gregorian) {
+              self._isApplyingValue = false;
+              return;
+            }
             let gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
             gregorianStr += ` ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
             
@@ -637,7 +640,6 @@ class JalaliDatepicker {
           // Close if clicking on any date/datetime input field that's not our current input
           if (($target.is('input[data-fieldtype="Date"]') || $target.is('input[data-fieldtype="Datetime"]')) && 
               !$target.is(self.input)) {
-            console.log('Closing datepicker due to click on another date/datetime field');
             self.close();
           }
         }
@@ -673,11 +675,9 @@ class JalaliDatepicker {
           return;
         }
         
-        console.log(`_globalClickListener: click detected, _isApplyingValue=${self._isApplyingValue}, _isDraggingSlider=${self._isDraggingSlider}`);
         
         // If currently applying value or dragging slider, don't close
         if (self._isApplyingValue || self._isDraggingSlider) {
-          console.log(`_globalClickListener: ignoring click (applying value or dragging)`);
           return;
         }
         
@@ -695,7 +695,6 @@ class JalaliDatepicker {
         
         // If clicking inside calendar or on slider, don't close
         if (isClickInsideDatepicker || isTimePickerElement) {
-          console.log(`_globalClickListener: clicking inside calendar/slider, ignoring`);
           return;
         }
         
@@ -707,11 +706,9 @@ class JalaliDatepicker {
             return;
           }
           
-          console.log(`_globalClickListener (timeout): checking again, _isApplyingValue=${self._isApplyingValue}, _isDraggingSlider=${self._isDraggingSlider}`);
           
           // Check again if applying value or dragging (might have started during timeout)
           if (self._isApplyingValue || self._isDraggingSlider) {
-            console.log(`_globalClickListener (timeout): ignoring click (applying value or dragging)`);
             return;
           }
           
@@ -733,12 +730,10 @@ class JalaliDatepicker {
           
           // If clicking inside calendar, on input, or on slider, don't close
           if (isClickInsideDatepickerAgain || isClickOnOwnInputAgain || isTimePickerElementAgain) {
-            console.log(`_globalClickListener (timeout): clicking inside calendar/input/slider, ignoring`);
             return;
           }
           
           // Click is outside, close the calendar
-          console.log('_globalClickListener (timeout): Closing datepicker due to click outside');
           self.close();
         }, 100); // Reduced delay for better responsiveness
       };
@@ -801,7 +796,6 @@ class JalaliDatepicker {
       }
       
       this.$calendar.show();
-      console.log("Calendar opened with view:", this.view, "isDateTime:", this.isDateTime);
     }
 
     close() {
@@ -820,7 +814,6 @@ class JalaliDatepicker {
         this._globalClickListener = null;
       }
       
-      console.log("Calendar closed");
     }
     
     // Navigation methods
@@ -1104,11 +1097,9 @@ class JalaliDatepicker {
         $daysGrid.append($nextDay);
       }
       
-      console.log(`Updated calendar with ${daysInMonth} days`);
     }
 
     selectDate(day, closeCalendar) {
-      console.log(`selectDate called: day=${day}, closeCalendar=${closeCalendar}, isDateTime=${this.isDateTime}`);
       
       // For datetime fields, never auto-close calendar (allow time selection)
       // For date fields, close immediately if closeCalendar is true (default true for date fields)
@@ -1122,7 +1113,6 @@ class JalaliDatepicker {
         jd: day
       };
       
-      console.log(`selectDate: selectedDate set to:`, this.selectedDate);
       
       // Update time from time picker if datetime
       if (this.isDateTime) {
@@ -1131,31 +1121,23 @@ class JalaliDatepicker {
           minute: parseInt(this.$calendar.find('.time-minute').val()) || this.selectedTime.minute || 0,
           second: parseInt(this.$calendar.find('.time-second').val()) || this.selectedTime.second || 0
         };
-        console.log(`selectDate: selectedTime set to:`, this.selectedTime);
       }
       
       // Apply value without closing calendar (for datetime, calendar stays open)
-      console.log(`selectDate: calling applySelectedValue, isOpen=${this.isOpen}`);
       this.applySelectedValue();
       
       // For datetime fields, never auto-close calendar (allow time selection)
       // For date fields, close immediately
       if (!this.isDateTime && closeCalendar) {
-        console.log(`selectDate: closing calendar (date field)`);
         this.close();
-      } else {
-        console.log(`selectDate: NOT closing calendar (datetime field or closeCalendar=false), isOpen=${this.isOpen}`);
       }
       
-      console.log(`Selected ${this.isDateTime ? 'datetime' : 'date'}:`, this.selectedDate);
     }
     
     applySelectedValue() {
-      console.log(`applySelectedValue called, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
       
       // Set flag to prevent calendar from closing during value update
       this._isApplyingValue = true;
-      console.log(`applySelectedValue: _isApplyingValue set to true`);
       
       let jalaliStr;
       if (this.isDateTime) {
@@ -1173,6 +1155,10 @@ class JalaliDatepicker {
       
       // Convert to Gregorian for storage
       const gregorian = jToG(this.selectedDate.jy, this.selectedDate.jm, this.selectedDate.jd);
+      if (!gregorian) {
+        this._isApplyingValue = false;
+        return;
+      }
       let gregorianStr = `${gregorian.gy}-${String(gregorian.gm).padStart(2, '0')}-${String(gregorian.gd).padStart(2, '0')}`;
       
       // Add time for datetime
@@ -1180,33 +1166,26 @@ class JalaliDatepicker {
         gregorianStr += ` ${String(this.selectedTime.hour).padStart(2, '0')}:${String(this.selectedTime.minute).padStart(2, '0')}:${String(this.selectedTime.second).padStart(2, '0')}`;
       }
       
-      console.log(`Converting Jalali ${jalaliStr} to Gregorian ${gregorianStr}`);
       
       // Set the Gregorian value in Frappe's system
       if (this.controlDate && this.controlDate.set_value) {
-        console.log(`applySelectedValue: calling controlDate.set_value`);
         this.controlDate.set_value(gregorianStr);
         this.$input.val(jalaliStr);
-        console.log(`applySelectedValue: set_value called, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
       } else {
         // Fallback: just set the input value
-        console.log(`applySelectedValue: setting input value directly`);
         this.$input.val(jalaliStr);
         this.$input.trigger('change');
-        console.log(`applySelectedValue: change triggered, isOpen=${this.isOpen}, _isApplyingValue=${this._isApplyingValue}`);
       }
       
       // Clear flag after a delay to allow events to complete
       const self = this;
       setTimeout(function() {
-        console.log(`applySelectedValue: clearing _isApplyingValue flag after timeout, isOpen=${self.isOpen}`);
         self._isApplyingValue = false;
       }, 300);
     }
 
     selectToday() {
       const today = gToJ(new Date());
-      console.log('Today in Jalali:', today);
       
       // Update current date to today's month/year
       this.currentDate = { ...today };
@@ -1224,7 +1203,6 @@ class JalaliDatepicker {
     selectNow() {
       const now = new Date();
       const today = gToJ(now);
-      console.log('Now in Jalali:', today);
       
       // Update current date to today's month/year
       this.currentDate = { ...today };
@@ -1476,6 +1454,7 @@ class JalaliDatepicker {
       // Calculate first day of Jalali month
       // Convert Jalali date to Gregorian to get the weekday
       const gregorian = jToG(year, month, 1);
+      if (!gregorian) return 0;
       const date = new Date(gregorian.gy, gregorian.gm - 1, gregorian.gd);
       
       // Convert JavaScript weekday (Sunday=0) to our weekday system (Saturday=0)
@@ -1498,7 +1477,6 @@ class JalaliDatepicker {
 
     // Check if already overridden
     if (frappe.ui.form.ControlDate.prototype.replaceWithJalaliDatepicker) {
-      console.log("ControlDate already patched for Jalali");
       return;
     }
 
@@ -1507,7 +1485,6 @@ class JalaliDatepicker {
 
     class JalaliControlDate extends BaseControlDate {
       make_input() {
-        console.log(`make_input called for field: ${this.df ? this.df.fieldname : 'unknown'}, jalaliDatepicker exists: ${!!this.jalaliDatepicker}, isOpen: ${this.jalaliDatepicker ? this.jalaliDatepicker.isOpen : 'N/A'}`);
         
         let useJalali = false;
         let display_calendar = "Gregorian";
@@ -1585,7 +1562,6 @@ class JalaliDatepicker {
           if (this.$wrapper && this.$wrapper.length) {
             this.$input = $(`<input class="form-control" type="text">`);
           } else {
-            console.error('setupInputWithoutAirDatepicker: Cannot find input or wrapper for field:', this.df ? this.df.fieldname : 'unknown');
             return;
           }
         }
@@ -1662,13 +1638,11 @@ class JalaliDatepicker {
         // This prevents calendar from closing when set_value is called
         if (this.jalaliDatepicker) {
           const isCalendarOpen = this.jalaliDatepicker.isOpen;
-          console.log(`replaceWithJalaliDatepicker: Jalali datepicker already exists for field: ${this.df ? this.df.fieldname : 'unknown'}, isOpen: ${isCalendarOpen}, skipping recreation`);
           // Always skip recreation if datepicker exists, not just when open
           // This prevents any issues with event handlers being reset
           return;
         }
         
-        console.log(`replaceWithJalaliDatepicker: Creating new Jalali datepicker for field: ${this.df ? this.df.fieldname : 'unknown'}`);
         
         // Ensure input exists (should already be created by setupInputWithoutAirDatepicker)
         if (!this.$input || !this.$input.length) {
@@ -1713,7 +1687,6 @@ class JalaliDatepicker {
         // Fix alignment after datepicker creation
         this.fixFieldAlignment();
         
-        console.log('Jalali datepicker created for field:', this.df ? this.df.fieldname : 'unknown', 'isDateTime:', isDateTime);
       }
       
       fixFieldAlignment() {
@@ -1728,7 +1701,6 @@ class JalaliDatepicker {
             this.datepicker.destroy();
             this.datepicker = null;
           } catch(e) {
-            console.log('Error destroying air-datepicker:', e);
           }
         }
         
@@ -1751,11 +1723,9 @@ class JalaliDatepicker {
           this.$input.off('.datepicker');
         }
         
-        console.log('Air-datepicker instances removed for field:', this.df.fieldname);
       }
 
       set_formatted_input(value) {
-        console.log(`set_formatted_input called for field: ${this.df ? this.df.fieldname : 'unknown'}, value: ${value}, jalaliDatepicker exists: ${!!this.jalaliDatepicker}, isOpen: ${this.jalaliDatepicker ? this.jalaliDatepicker.isOpen : 'N/A'}`);
         
         try {
           // Check cache first
@@ -1791,7 +1761,6 @@ class JalaliDatepicker {
                 this.$input.siblings('.jalali-datepicker').remove();
               }
             }
-            console.log('set_formatted_input - Using Gregorian calendar, no conversion');
             // Use correct base so Datetime fields get value (incl. time) set correctly; avoids "Not Saved" / broken actions
             if (this.df && this.df.fieldtype === "Datetime") {
               return BaseControlDatetime.prototype.set_formatted_input.call(this, value);
@@ -1805,7 +1774,6 @@ class JalaliDatepicker {
           // Convert Gregorian to Jalali for display (only when Jalali is enabled)
           if (value) {
             const isDateTimeField = this.df && this.df.fieldtype === "Datetime";
-            console.log('set_formatted_input - Input value:', value, 'Display calendar:', display_calendar, 'Is DateTime:', isDateTimeField);
             
             // Parse the date more carefully
             let gregorianDate;
@@ -1837,7 +1805,6 @@ class JalaliDatepicker {
               }
             }
             
-            console.log('set_formatted_input - Parsed date:', gregorianDate, 'Time part:', timePart);
             
             if (!isNaN(gregorianDate.getTime())) {
               const jalali = gToJ(gregorianDate);
@@ -1853,7 +1820,6 @@ class JalaliDatepicker {
                 jalaliStr = formatJalaliDate(jalali.jy, jalali.jm, jalali.jd);
               }
               
-              console.log('set_formatted_input - Jalali:', jalali, 'String:', jalaliStr);
               this.$input.val(jalaliStr);
               
               // Update datepicker
@@ -1861,13 +1827,11 @@ class JalaliDatepicker {
                 this.jalaliDatepicker.updateDisplay();
               }
             } else {
-              console.log('set_formatted_input - Invalid date, keeping original value');
             }
           }
 
           return r;
         } catch(e) {
-          console.log('set_formatted_input error:', e);
           return super.set_formatted_input(value);
         }
       }
@@ -1887,7 +1851,6 @@ class JalaliDatepicker {
 
     // Override ControlDate
     frappe.ui.form.ControlDate = JalaliControlDate;
-    console.log("ControlDate patched for Jalali");
     
     // Override ControlDatetime - it should inherit from JalaliControlDate
     // But we need to make sure datetime-specific methods are preserved
@@ -1948,7 +1911,6 @@ class JalaliDatepicker {
     }
     
     frappe.ui.form.ControlDatetime = JalaliControlDatetime;
-    console.log("ControlDatetime patched for Jalali");
   }
 
   // Function to remove all existing air-datepicker instances from the page
@@ -2104,7 +2066,6 @@ class JalaliDatepicker {
         return;
       }
 
-      console.log(`Found ${$dateInputs.length} date inputs in page forms/query reports to initialize`);
 
       $dateInputs.each(function() {
         const $input = $(this);
@@ -2178,17 +2139,13 @@ class JalaliDatepicker {
                 }
               }
             } catch(e) {
-              console.log('Error converting date value:', e);
             }
           }
           
-          console.log('Initialized Jalali datepicker for field:', fieldname || fieldtype);
         } catch(e) {
-          console.log('Error initializing Jalali datepicker for input:', e);
         }
       });
     } catch(e) {
-      console.log('Error in initializeDateFieldsInPageForms:', e);
     }
   }
 
@@ -2232,10 +2189,9 @@ class JalaliDatepicker {
           const jy = todayJ.jy;
           // Start: jy-01-01 (Jalali) => Gregorian
           const startG = jToG(jy, 1, 1);
-          const startStr = `${startG.gy}-${String(startG.gm).padStart(2,'0')}-${String(startG.gd).padStart(2,'0')}`;
-
-          // End: next jy's 01-01 minus one day
           const nextStartG = jToG(jy + 1, 1, 1);
+          if (!startG || !nextStartG) return;
+          const startStr = `${startG.gy}-${String(startG.gm).padStart(2,'0')}-${String(startG.gd).padStart(2,'0')}`;
           const nextStartDate = new Date(nextStartG.gy, nextStartG.gm - 1, nextStartG.gd);
           const endDate = new Date(nextStartDate.getTime() - 24 * 60 * 60 * 1000);
           const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
@@ -2244,12 +2200,10 @@ class JalaliDatepicker {
           // If not short year, Frappe's handler sets end automatically; force set to Jalali end regardless
           frm.set_value('year_end_date', endStr);
         } catch (e) {
-          console.log('Error setting Jalali Fiscal Year defaults:', e);
         }
       }
     });
   } catch (e) {
-    console.log('Unable to attach Fiscal Year onload override:', e);
   }
 
   // Listen for User form calendar_preference changes and refresh page after save
@@ -2260,8 +2214,6 @@ class JalaliDatepicker {
         // Check if calendar_preference field exists and if user is editing their own profile
         if (frm.doc.calendar_preference !== undefined && 
             frm.doc.name === frappe.session.user) {
-          console.log('User calendar_preference changed to:', frm.doc.calendar_preference);
-          console.log('Reloading page to apply new calendar settings...');
           // Reload page to apply new calendar settings
           setTimeout(function() {
             window.location.reload();
@@ -2270,7 +2222,6 @@ class JalaliDatepicker {
       }
     });
   } catch (e) {
-    console.log('Unable to attach User form handler:', e);
   }
 
 })();
