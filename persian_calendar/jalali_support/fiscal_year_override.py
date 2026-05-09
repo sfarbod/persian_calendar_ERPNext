@@ -2,12 +2,16 @@
 # For license information, please see license.txt
 
 import frappe
-from dateutil.relativedelta import relativedelta
 from frappe.utils import getdate
+
+_fiscal_year_validate_dates_patched = False
 
 def setup_fiscal_year_override():
     """Setup Fiscal Year validation override for Jalali calendar support"""
-    
+    global _fiscal_year_validate_dates_patched
+    if _fiscal_year_validate_dates_patched:
+        return
+
     # Import the original FiscalYear class
     from erpnext.accounts.doctype.fiscal_year.fiscal_year import FiscalYear as OriginalFiscalYear
     
@@ -56,18 +60,14 @@ def setup_fiscal_year_override():
                     frappe.exceptions.InvalidDates,
                 )
                 
-        except Exception as e:
-            # Fallback to original validation if there's any error
-            print(f"Error in Jalali fiscal year validation, using original: {e}")
+        except Exception:
             return original_validate_dates(self)
     
     # Replace the validate_dates method
     OriginalFiscalYear.validate_dates = jalali_validate_dates
-    
-    print("Fiscal Year validation override for Jalali calendar setup completed")
+    _fiscal_year_validate_dates_patched = True
+
 
 def remove_fiscal_year_override():
     """Remove Fiscal Year validation override"""
-    # This would restore the original method, but it's complex
-    # For now, just print a message
-    print("Fiscal Year validation override removal not implemented yet")
+    pass
