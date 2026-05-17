@@ -59,6 +59,14 @@ When ERPNext is installed, `persian_calendar.jalali_support.formatters.patch_get
 - **Scope:** Report **labels / presentation**, not raw numeric export columns from GL.
 - **Risk:** Any ERPNext upgrade that changes that module’s API could require revisiting the patch; it is isolated to this app.
 
+## Employee date fields (date_of_birth / date_of_joining)
+
+- **Wrong Jalali after pick:** `toGregorian` in `jalaali.js` previously only searched Gregorian years 2000–2030, so birth years (e.g. 1368) used a bad fallback and the stored/displayed date could drift (e.g. `1368-10-11` instead of the day clicked).
+- **Fix:** `toGregorian` now searches a window around `jy + 621` using the same Intl Persian calendar mapping as `toJalali`.
+- **`datepicker.update` error:** ERPNext `employee.js` calls `frm.fields_dict.date_of_birth.datepicker.update({ maxDate: new Date() })`. The Jalali control installs a small **air-datepicker-compatible shim** on `control.datepicker` with `update()`, `clear()`, etc., and applies `maxDate` / `minDate` when selecting a day.
+
+Desk controls use `window.jalaliDateUtils` (`isLikelyGregorianISO` / `isLikelyJalaliISO`, `gregorianToJalaliISO`, `jalaliToGregorianISO`, `normalizeModelDate`) so Jalali years (e.g. 1368) are never treated as Gregorian (which produced wrong display years like 747). Never use `new Date("1405-02-23")`.
+
 ---
 
 *Last updated for Frappe/ERPNext v16 compatibility work.*
