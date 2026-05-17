@@ -16,7 +16,6 @@ def apply_data_import_export_patches() -> None:
 	if _patches_applied:
 		return
 	_patches_applied = True
-	frappe.logger("persian_calendar").info("Applying Jalali Data Import/Export patches")
 
 	_patch_data_export_exporter()
 	_patch_data_import_exporter()
@@ -37,7 +36,6 @@ def _patch_data_export_exporter() -> None:
 	def __init__(self, *args, export_dates_as_jalali=False, **kwargs):
 		_orig_init(self, *args, **kwargs)
 		self.export_dates_as_jalali = cint(export_dates_as_jalali)
-		self._jalali_export_debug_rows = 0
 
 	def add_data_row(self, rows, dt, parentfield, doc, rowidx):
 		if not getattr(self, "export_dates_as_jalali", 0):
@@ -65,18 +63,7 @@ def _patch_data_export_exporter() -> None:
 				value = raw
 				if value not in (None, ""):
 					if fieldtype in ("Date", "Datetime"):
-						converted = convert_export_value(raw, fieldtype, True)
-						if self._jalali_export_debug_rows < 5:
-							frappe.logger("persian_calendar").info(
-								"Jalali export row=%s doctype=%s field=%s raw=%r -> %r",
-								rowidx,
-								dt,
-								c,
-								raw,
-								converted,
-							)
-							self._jalali_export_debug_rows += 1
-						value = converted
+						value = convert_export_value(raw, fieldtype, True)
 					elif fieldtype == "Duration" and df:
 						value = format_duration(value, df.hide_days)
 					elif fieldtype == "Text Editor" and value:
@@ -121,22 +108,6 @@ def _patch_data_export_exporter() -> None:
 		else:
 			raw_jalali = export_dates_as_jalali
 		jalali_flag = cint(raw_jalali)
-		fd = getattr(frappe.local, "form_dict", None) or {}
-		try:
-			form_keys = list(fd.keys()) if hasattr(fd, "keys") else []
-		except Exception:
-			form_keys = []
-		frappe.logger("persian_calendar").info(
-			{
-				"event": "export_data",
-				"export_dates_as_jalali": jalali_flag,
-				"export_dates_as_jalali_raw": raw_jalali,
-				"doctype": _doctype,
-				"file_type": file_type,
-				"with_data": with_data,
-				"form_dict_keys": form_keys,
-			}
-		)
 
 		exporter = mod.DataExporter(
 			doctype=doctype,

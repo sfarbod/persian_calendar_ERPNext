@@ -31,8 +31,12 @@
     return window.jalaliDateUtils;
   }
 
-  function g2j_str(value) {
+  function g2j_str(value, fieldtype) {
     if (!value || !U()) return value;
+    const ft = fieldtype === "Datetime" ? "Datetime" : "Date";
+    if (U().valueToJalaliDisplay) {
+      return U().valueToJalaliDisplay(value, ft);
+    }
     const stripped = U().stripMicroseconds(value);
     const dateOnly = stripped.slice(0, 10);
     if (U().isLikelyJalaliISO(dateOnly) || U().isLikelyJalaliDateTime(stripped)) {
@@ -146,7 +150,7 @@
       }
       return value;
     }
-    return g2j_str(value);
+    return g2j_str(value, "Date");
   };
 
   frappe.form.formatters.datetime = function (value, df, options, doc) {
@@ -157,6 +161,6 @@
       }
       return value;
     }
-    return g2j_str(value);
+    return g2j_str(value, "Datetime");
   };
 })();

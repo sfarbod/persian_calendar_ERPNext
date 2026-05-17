@@ -2,7 +2,7 @@
 
 frappe.provide("persian_calendar.data_io");
 
-const JALALI_DATA_IO_DEBUG = true;
+const JALALI_DATA_IO_DEBUG = false;
 const DATA_EXPORT_API_METHOD = "frappe.core.doctype.data_export.exporter.export_data";
 
 function jalali_data_io_log(...args) {
@@ -45,7 +45,6 @@ function inject_export_jalali_flag_into_args(url, args) {
 	const value = frm ? get_export_jalali_flag(frm) : 0;
 	try {
 		if (args == null) {
-			// Core always passes an object; do not replace arguments[1] — only mutate when present.
 			return;
 		}
 		if (typeof FormData !== "undefined" && args instanceof FormData) {
@@ -53,10 +52,11 @@ function inject_export_jalali_flag_into_args(url, args) {
 		} else if (typeof args === "object") {
 			args.export_dates_as_jalali = value;
 		}
-		console.log("[Jalali Data IO] open_url_post patch hit", url, args);
-		console.log("[Jalali Data IO] export_dates_as_jalali", value);
+		if (JALALI_DATA_IO_DEBUG) {
+			jalali_data_io_log("open_url_post export", { url, export_dates_as_jalali: value });
+		}
 	} catch (e) {
-		console.warn("[Jalali Data IO] open_url_post inject failed", e);
+		console.error("[persian_calendar] open_url_post inject failed", e);
 	}
 }
 
@@ -67,7 +67,6 @@ function patch_open_url_post_for_data_export() {
 	}
 	const original_open_url_post = window.open_url_post;
 	if (typeof original_open_url_post !== "function") {
-		jalali_data_io_log("open_url_post not ready, retry patch");
 		setTimeout(patch_open_url_post_for_data_export, 50);
 		return;
 	}
@@ -76,14 +75,13 @@ function patch_open_url_post_for_data_export() {
 		try {
 			inject_export_jalali_flag_into_args(URL, PARAMS);
 		} catch (e) {
-			console.warn("[Jalali Data IO] open_url_post patch error", e);
+			console.error("[persian_calendar] open_url_post patch error", e);
 		}
 		return original_open_url_post.apply(this, arguments);
 	}
 
 	jalali_open_url_post._jalali_data_export_patched = true;
 	window.open_url_post = jalali_open_url_post;
-	jalali_data_io_log("patched window.open_url_post for Data Export");
 }
 
 function inject_data_export_jalali_checkbox(frm) {
@@ -91,7 +89,6 @@ function inject_data_export_jalali_checkbox(frm) {
 		return;
 	}
 	if (frm.fields_dict?.export_dates_as_jalali) {
-		jalali_data_io_log("Data Export: using Custom Field export_dates_as_jalali");
 		return;
 	}
 	if (frm._jalali_export_checkbox_injected) {
@@ -104,7 +101,6 @@ function inject_data_export_jalali_checkbox(frm) {
 		frm.wrapper;
 
 	if (!anchor || !anchor.length) {
-		jalali_data_io_log("Data Export: no anchor for injected checkbox");
 		return;
 	}
 
@@ -129,35 +125,18 @@ function inject_data_export_jalali_checkbox(frm) {
 
 	frm._jalali_export_checkbox_injected = true;
 	frm._export_dates_as_jalali = frm._export_dates_as_jalali || 0;
-	jalali_data_io_log("Data Export: injected export_dates_as_jalali checkbox");
 }
 
 function setup_data_export_form() {
 	frappe.ui.form.on("Data Export", {
-		onload(frm) {
-			jalali_data_io_log("Data Export form onload", frappe.get_route());
-		},
 		refresh(frm) {
-			jalali_data_io_log("Data Export form refresh", frappe.get_route());
 			inject_data_export_jalali_checkbox(frm);
 		},
 	});
 }
 
 function setup_data_import_form() {
-	frappe.ui.form.on("Data Import", {
-		onload(frm) {
-			jalali_data_io_log("Data Import form onload", frappe.get_route());
-		},
-		refresh(frm) {
-			jalali_data_io_log(
-				"Data Import refresh",
-				frappe.get_route(),
-				"has field",
-				!!frm.fields_dict.import_dates_from_jalali
-			);
-		},
-	});
+	/* Custom Field import_dates_from_jalali is on the form; no extra JS required. */
 }
 
 function patch_data_exporter_dialog() {
@@ -182,7 +161,6 @@ function patch_data_exporter_dialog() {
 				insert_after: "file_type",
 			});
 			dialog._jalali_export_field_added = true;
-			jalali_data_io_log("Export Data dialog: added export_dates_as_jalali");
 		}
 	};
 
@@ -202,10 +180,6 @@ function patch_data_exporter_dialog() {
 		if (values.export_records === "by_filter") {
 			filters = this.get_filters();
 		}
-		jalali_data_io_log(
-			"Export Data dialog download",
-			values.export_dates_as_jalali ? 1 : 0
-		);
 		open_url_post(method, {
 			doctype: this.doctype,
 			file_type: values.file_type,
@@ -217,17 +191,9 @@ function patch_data_exporter_dialog() {
 	};
 }
 
-function setup_route_hooks() {
-	frappe.router.on("change", () => {
-		jalali_data_io_log("route change", frappe.get_route());
-	});
-}
-
 $(() => {
-	jalali_data_io_log("loaded");
 	patch_open_url_post_for_data_export();
 	setup_data_export_form();
 	setup_data_import_form();
 	patch_data_exporter_dialog();
-	setup_route_hooks();
 });

@@ -142,6 +142,89 @@
     return `${formatJalaliParts(j.jy, j.jm, j.jd)} ${formatTimeHMS(p.h, p.i, p.s)}`;
   }
 
+  /**
+   * Grid/list display: model stays Gregorian; show Jalali. Handles ISO, Jalali, and user formats (dd-mm-yyyy).
+   */
+  function valueToJalaliDisplay(value, fieldtype) {
+    if (value == null || value === "") {
+      return "";
+    }
+    const str = stripMicroseconds(String(value).trim());
+    const isDatetime = fieldtype === "Datetime";
+
+    if (isDatetime && isLikelyJalaliDateTime(str)) {
+      const p = parseDateTimeParts(str);
+      if (p) {
+        return `${formatJalaliParts(p.y, p.m, p.d)} ${formatTimeHMS(p.h, p.i, p.s)}`;
+      }
+      return str;
+    }
+    const datePart = str.indexOf(" ") === -1 ? str : str.slice(0, str.indexOf(" "));
+    if (!isDatetime && isLikelyJalaliISO(datePart)) {
+      return datePart;
+    }
+    if (isDatetime && isLikelyGregorianDateTime(str)) {
+      return gregorianDateTimeToJalali(str) || str;
+    }
+    if (isLikelyGregorianISO(datePart)) {
+      const j = gregorianToJalaliISO(datePart);
+      if (!j) {
+        return str;
+      }
+      if (isDatetime && str.length > datePart.length) {
+        const tp = parseDateTimeParts(`2000-01-01 ${str.slice(datePart.length + 1)}`);
+        const t = tp ? formatTimeHMS(tp.h, tp.i, tp.s) : "";
+        return t ? `${j} ${t}` : j;
+      }
+      return j;
+    }
+
+    if (typeof moment !== "undefined" && frappe?.datetime) {
+      try {
+        const dateFmt = (
+          frappe.boot?.sysdefaults?.date_format ||
+          frappe.sys_defaults?.date_format ||
+          "yyyy-mm-dd"
+        ).toUpperCase();
+        const timeFmt = frappe.datetime.get_user_time_fmt
+          ? frappe.datetime.get_user_time_fmt()
+          : "HH:mm:ss";
+        let m;
+        if (isDatetime) {
+          m = moment(str, [
+            `${dateFmt} ${timeFmt}`,
+            frappe.defaultDatetimeFormat,
+            "YYYY-MM-DD HH:mm:ss",
+            moment.ISO_8601,
+          ]);
+        } else {
+          m = moment(str, [dateFmt, frappe.defaultDateFormat, "YYYY-MM-DD", moment.ISO_8601]);
+        }
+        if (m.isValid()) {
+          const iso = isDatetime
+            ? m.format("YYYY-MM-DD HH:mm:ss")
+            : m.format("YYYY-MM-DD");
+          return valueToJalaliDisplay(iso, fieldtype);
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    return str;
+  }
+
+  function looksLikeGregorianUserDisplay(text) {
+    if (!text) {
+      return false;
+    }
+    const t = String(text).trim();
+    if (/^\d{4}-\d{1,2}-\d{1,2}/.test(t)) {
+      const y = parseInt(t.slice(0, 4), 10);
+      return y >= 1700;
+    }
+    return /^\d{1,2}-\d{1,2}-\d{4}/.test(t) || /^\d{1,2}\/\d{1,2}\/\d{4}/.test(t);
+  }
+
   function jalaliDateTimeToGregorian(value) {
     const p = parseDateTimeParts(value);
     if (!p || p.y < 1200 || p.y > 1600) return null;
@@ -212,6 +295,8 @@
     jalaliPartsDateTimeToGregorian,
     normalizeModelDate,
     normalizeModelDateTime,
+    valueToJalaliDisplay,
+    looksLikeGregorianUserDisplay,
     formatJalaliParts,
     formatGregorianParts,
     formatTimeHMS,
