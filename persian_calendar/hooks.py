@@ -76,11 +76,12 @@ app_include_js = ["jalali_support.bundle.js"]
 # Jinja
 # ----------
 
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "persian_calendar.utils.jinja_methods",
-# 	"filters": "persian_calendar.utils.jinja_filters"
-# }
+# Jinja methods for Print Formats (toshamshi, to_persian_digits, …)
+jinja = {
+	"methods": [
+		"persian_calendar.utils.jalali",
+	],
+}
 
 # Installation
 # ------------
@@ -256,10 +257,21 @@ desktop_items = ["jalali_settings"]
 # ----------------
 before_request = [
     "persian_calendar.jalali_support.formatters.setup_jalali_formatters",
-    "persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override"
+    "persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override",
+    "persian_calendar.jalali_support.template_hooks.apply_template_patches",
+    "persian_calendar.jalali_support.data_import_export.apply_data_import_export_patches",
 ]
 
 # Install/Uninstall Events
 # ------------------------
-after_install = ["persian_calendar.jalali_support.doctype.custom_field.calendar_preference.create_calendar_preference_field"]
-after_uninstall = ["persian_calendar.jalali_support.doctype.custom_field.calendar_preference.remove_calendar_preference_field"]
+after_install = [
+	"persian_calendar.jalali_support.doctype.custom_field.calendar_preference.create_calendar_preference_field",
+	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.create_data_import_export_fields",
+]
+after_migrate = [
+	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.create_data_import_export_fields",
+]
+after_uninstall = [
+	"persian_calendar.jalali_support.doctype.custom_field.calendar_preference.remove_calendar_preference_field",
+	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.remove_data_import_export_fields",
+]

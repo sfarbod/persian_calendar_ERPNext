@@ -1,0 +1,24 @@
+[
+	{
+		"doctype": "Custom Field",
+		"name": "Data Export-export_dates_as_jalali",
+		"dt": "Data Export",
+		"fieldname": "export_dates_as_jalali",
+		"fieldtype": "Check",
+		"label": "Export dates as Jalali",
+		"insert_after": "file_type",
+		"default": "0",
+		"module": "Persian Calendar"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Data Import-import_dates_from_jalali",
+		"dt": "Data Import",
+		"fieldname": "import_dates_from_jalali",
+		"fieldtype": "Check",
+		"label": "Import dates from Jalali",
+		"insert_after": "import_type",
+		"default": "0",
+		"module": "Persian Calendar"
+	}
+]
