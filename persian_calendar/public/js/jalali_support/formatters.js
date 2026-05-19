@@ -60,6 +60,12 @@
   function j2g_str(value) {
     if (!value || !U()) return value;
     const stripped = U().stripMicroseconds(value);
+    if (U().coerceToGregorianDateTime) {
+      const coerced = U().coerceToGregorianDateTime(stripped);
+      if (coerced) {
+        return coerced;
+      }
+    }
     if (U().isLikelyGregorianDateTime(stripped)) {
       return U().normalizeModelDateTime(stripped);
     }

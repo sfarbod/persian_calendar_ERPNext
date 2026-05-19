@@ -106,8 +106,87 @@
     return !!(p && p.y >= 1200 && p.y <= 1600);
   }
 
+  const US_DATETIME_PARSE_FORMATS = [
+    "M/D/YYYY H:mm",
+    "M/D/YYYY HH:mm",
+    "MM/DD/YYYY H:mm",
+    "MM/DD/YYYY HH:mm",
+    "M/D/YYYY h:mm A",
+    "MM/DD/YYYY h:mm A",
+    "D/M/YYYY H:mm",
+    "DD/MM/YYYY H:mm",
+    "D/M/YYYY HH:mm",
+    "DD/MM/YYYY HH:mm",
+    "YYYY-MM-DD HH:mm:ss",
+    "YYYY-MM-DD HH:mm",
+    "YYYY-MM-DD H:mm",
+  ];
+
+  /**
+   * Parse assorted Gregorian datetime strings (import / user format) to model storage form.
+   * Returns YYYY-MM-DD HH:mm:ss or null. Never treats Jalali years as Gregorian.
+   */
+  function coerceToGregorianDateTime(value) {
+    if (value == null || value === "") {
+      return null;
+    }
+    const str = stripMicroseconds(String(value).trim());
+    if (!str) {
+      return null;
+    }
+
+    if (isLikelyGregorianDateTime(str)) {
+      const p = parseDateTimeParts(str);
+      if (p) {
+        return `${formatGregorianParts(p.y, p.m, p.d)} ${formatTimeHMS(p.h, p.i, p.s)}`;
+      }
+    }
+    if (isLikelyJalaliDateTime(str)) {
+      return jalaliDateTimeToGregorian(str);
+    }
+
+    if (typeof moment !== "undefined") {
+      const formats = [...US_DATETIME_PARSE_FORMATS];
+      try {
+        const dateFmt = (
+          frappe.boot?.sysdefaults?.date_format ||
+          frappe.sys_defaults?.date_format ||
+          "yyyy-mm-dd"
+        ).toUpperCase();
+        const timeFmt =
+          (typeof frappe !== "undefined" &&
+            frappe.datetime &&
+            frappe.datetime.get_user_time_fmt &&
+            frappe.datetime.get_user_time_fmt()) ||
+          frappe.boot?.sysdefaults?.time_format ||
+          "HH:mm:ss";
+        formats.unshift(`${dateFmt} ${timeFmt}`);
+        if (typeof frappe !== "undefined" && frappe.defaultDatetimeFormat) {
+          formats.push(frappe.defaultDatetimeFormat);
+        }
+      } catch (e) {
+        /* ignore */
+      }
+
+      let m = moment(str, formats, true);
+      if (!m.isValid()) {
+        m = moment(str, formats, false);
+      }
+      if (m.isValid()) {
+        return m.format("YYYY-MM-DD HH:mm:ss");
+      }
+    }
+    return null;
+  }
+
   function formatJalaliParts(jy, jm, jd) {
-    return `${jy}-${String(jm).padStart(2, "0")}-${String(jd).padStart(2, "0")}`;
+    const y = parseInt(jy, 10);
+    const m = parseInt(jm, 10);
+    const d = parseInt(jd, 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      return "";
+    }
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
 
   function formatGregorianParts(gy, gm, gd) {
@@ -139,7 +218,14 @@
     const p = parseDateTimeParts(value);
     if (!p || p.y < 1700) return null;
     const j = toJalali(p.y, p.m, p.d);
-    return `${formatJalaliParts(j.jy, j.jm, j.jd)} ${formatTimeHMS(p.h, p.i, p.s)}`;
+    if (!j || !Number.isFinite(j.jy) || !Number.isFinite(j.jm) || !Number.isFinite(j.jd)) {
+      return null;
+    }
+    const dateStr = formatJalaliParts(j.jy, j.jm, j.jd);
+    if (!dateStr) {
+      return null;
+    }
+    return `${dateStr} ${formatTimeHMS(p.h, p.i, p.s)}`;
   }
 
   /**
@@ -179,6 +265,11 @@
       return j;
     }
 
+    const coerced = coerceToGregorianDateTime(str);
+    if (coerced) {
+      return valueToJalaliDisplay(coerced, fieldtype);
+    }
+
     if (typeof moment !== "undefined" && frappe?.datetime) {
       try {
         const dateFmt = (
@@ -193,6 +284,7 @@
         if (isDatetime) {
           m = moment(str, [
             `${dateFmt} ${timeFmt}`,
+            ...US_DATETIME_PARSE_FORMATS,
             frappe.defaultDatetimeFormat,
             "YYYY-MM-DD HH:mm:ss",
             moment.ISO_8601,
@@ -262,17 +354,20 @@
   }
 
   function normalizeModelDateTime(value) {
-    if (value == null || value === "") return value;
-    const str = stripMicroseconds(String(value).trim());
-    if (isLikelyGregorianDateTime(str)) {
-      const p = parseDateTimeParts(str);
-      if (!p) return str;
-      return `${formatGregorianParts(p.y, p.m, p.d)} ${formatTimeHMS(p.h, p.i, p.s)}`;
+    if (value == null || value === "") {
+      return value;
     }
-    if (isLikelyJalaliDateTime(str)) {
-      return jalaliDateTimeToGregorian(str) || str;
+    const coerced = coerceToGregorianDateTime(value);
+    if (coerced) {
+      return coerced;
     }
-    return str;
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn(
+        "[persian_calendar] could not coerce datetime; preserving original value:",
+        value
+      );
+    }
+    return value;
   }
 
   window.toJalali = toJalali;
@@ -295,6 +390,7 @@
     jalaliPartsDateTimeToGregorian,
     normalizeModelDate,
     normalizeModelDateTime,
+    coerceToGregorianDateTime,
     valueToJalaliDisplay,
     looksLikeGregorianUserDisplay,
     formatJalaliParts,

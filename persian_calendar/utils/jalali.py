@@ -175,6 +175,29 @@ def is_likely_gregorian_date(value: Any) -> bool:
 	return bool(parts and not parts[6] and _is_likely_gregorian_year(parts[0]))
 
 
+def coerce_gregorian_datetime(value: Any) -> str | None:
+	"""Parse Jalali/ISO/US-style datetime strings to storage ``YYYY-MM-DD HH:mm:ss`` (or date-only)."""
+	if value is None or value == "":
+		return None
+
+	g = jalali_to_gregorian_datetime(value)
+	if g:
+		return g
+
+	try:
+		from frappe.utils import get_datetime, getdate
+
+		if isinstance(value, str) and " " not in _strip_microseconds(value):
+			d = getdate(value)
+			return f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
+		dt = get_datetime(value)
+		if isinstance(dt, datetime):
+			return dt.replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+	except Exception:
+		pass
+	return None
+
+
 def jalali_to_gregorian_datetime(value: Any) -> str | None:
 	"""Convert Jalali (or normalize Gregorian) to ``YYYY-MM-DD`` or ``YYYY-MM-DD HH:mm:ss``."""
 	if jdatetime is None:
@@ -219,7 +242,7 @@ def jalali_import_to_python(value: Any, fieldtype: str):
 	"""Parse import cell to Python date/datetime (Gregorian storage)."""
 	from frappe.utils import get_datetime, getdate
 
-	g = jalali_to_gregorian_datetime(value)
+	g = coerce_gregorian_datetime(value) or jalali_to_gregorian_datetime(value)
 	if not g:
 		return None
 	if fieldtype == "Date":
