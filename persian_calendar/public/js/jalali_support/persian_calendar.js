@@ -434,34 +434,121 @@
   }
 
   function formatJalaliDate(jy, jm, jd) {
-    return `${jy}-${String(jm).padStart(2,"0")}-${String(jd).padStart(2,"0")}`;
+    const y = parseInt(jy, 10);
+    const m = parseInt(jm, 10);
+    const d = parseInt(jd, 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      return "";
+    }
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   }
 
   function formatJalaliDateTime(jy, jm, jd, hour, minute, second) {
     const dateStr = formatJalaliDate(jy, jm, jd);
-    const timeStr = `${String(hour || 0).padStart(2,"0")}:${String(minute || 0).padStart(2,"0")}:${String(second || 0).padStart(2,"0")}`;
+    if (!dateStr) {
+      return "";
+    }
+    const h = parseInt(hour, 10);
+    const mi = parseInt(minute, 10);
+    const s = parseInt(second, 10);
+    const timeStr = `${String(Number.isFinite(h) ? h : 0).padStart(2, "0")}:${String(Number.isFinite(mi) ? mi : 0).padStart(2, "0")}:${String(Number.isFinite(s) ? s : 0).padStart(2, "0")}`;
     return `${dateStr} ${timeStr}`;
   }
 
   function parseJalaliDate(dateStr) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length !== 3 || parts.some((n) => isNaN(n))) return null;
-    return { jy: parts[0], jm: parts[1], jd: parts[2] };
+    const U = getDateUtils();
+    if (!dateStr || !U) {
+      return null;
+    }
+    const str = String(dateStr).trim();
+    const datePart = str.indexOf(" ") === -1 ? str : str.slice(0, str.indexOf(" "));
+
+    if (U.isLikelyJalaliISO(datePart)) {
+      const p = U.parseYMD(datePart);
+      return p ? { jy: p.y, jm: p.m, jd: p.d } : null;
+    }
+    if (U.isLikelyGregorianISO(datePart)) {
+      const jalali = U.gregorianToJalaliISO(datePart);
+      if (!jalali) {
+        return null;
+      }
+      const p = U.parseYMD(jalali);
+      return p ? { jy: p.y, jm: p.m, jd: p.d } : null;
+    }
+
+    const coerced = U.coerceToGregorianDateTime
+      ? U.coerceToGregorianDateTime(str) || U.coerceToGregorianDateTime(datePart)
+      : null;
+    if (coerced) {
+      const jalali = U.gregorianToJalaliISO(coerced.slice(0, 10));
+      if (!jalali) {
+        return null;
+      }
+      const p = U.parseYMD(jalali);
+      return p ? { jy: p.y, jm: p.m, jd: p.d } : null;
+    }
+
+    const parts = datePart.split("-").map((x) => parseInt(x, 10));
+    if (
+      parts.length === 3 &&
+      parts.every((n) => Number.isFinite(n)) &&
+      parts[0] >= 1200 &&
+      parts[0] <= 1600
+    ) {
+      return { jy: parts[0], jm: parts[1], jd: parts[2] };
+    }
+    return null;
   }
 
   function parseJalaliDateTime(dateTimeStr) {
     const U = getDateUtils();
-    if (!dateTimeStr || !U) return null;
-    const p = U.parseDateTimeParts(dateTimeStr);
-    if (!p) return null;
-    return {
-      jy: p.y,
-      jm: p.m,
-      jd: p.d,
-      hour: p.h,
-      minute: p.i,
-      second: p.s,
-    };
+    if (!dateTimeStr || !U) {
+      return null;
+    }
+
+    const str = U.stripMicroseconds(String(dateTimeStr).trim());
+    if (!str) {
+      return null;
+    }
+
+    function partsFromJalaliDisplay(jalaliStr) {
+      const p = U.parseDateTimeParts(jalaliStr);
+      if (!p || !U.isLikelyJalaliDateTime(jalaliStr)) {
+        return null;
+      }
+      return {
+        jy: p.y,
+        jm: p.m,
+        jd: p.d,
+        hour: p.h,
+        minute: p.i,
+        second: p.s,
+      };
+    }
+
+    if (U.isLikelyGregorianDateTime(str)) {
+      return partsFromJalaliDisplay(U.gregorianDateTimeToJalali(str));
+    }
+    if (U.isLikelyJalaliDateTime(str)) {
+      const p = U.parseDateTimeParts(str);
+      if (!p) {
+        return null;
+      }
+      return {
+        jy: p.y,
+        jm: p.m,
+        jd: p.d,
+        hour: p.h,
+        minute: p.i,
+        second: p.s,
+      };
+    }
+
+    const coerced = U.coerceToGregorianDateTime(str);
+    if (coerced) {
+      return partsFromJalaliDisplay(U.gregorianDateTimeToJalali(coerced));
+    }
+    return null;
   }
 
   /** Display string for input from model value (Gregorian → Jalali; Jalali model value shown as-is). */
@@ -1195,6 +1282,7 @@ class JalaliDatepicker {
       
       this.isOpen = true;
       this.view = 'days'; // Always reset to days view
+      this.syncInputFromModel();
       this.updateDisplay(); // Update display to show current date (this will also update time picker if datetime)
       this.updateCalendar();
       
@@ -1303,11 +1391,23 @@ class JalaliDatepicker {
     }
 
     updateCalendar() {
+      if (
+        !this.currentDate ||
+        !Number.isFinite(this.currentDate.jy) ||
+        !Number.isFinite(this.currentDate.jm)
+      ) {
+        this.currentDate = gToJ(new Date());
+      }
       const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 
                         'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
       
       // Update header
-      this.$calendar.find('.month-year').text(`${monthNames[this.currentDate.jm - 1]} ${this.currentDate.jy}`);
+      const jm = this.currentDate.jm;
+      const monthLabel =
+        Number.isFinite(jm) && jm >= 1 && jm <= 12
+          ? monthNames[jm - 1]
+          : monthNames[0];
+      this.$calendar.find('.month-year').text(`${monthLabel} ${this.currentDate.jy}`);
       
       // Show/hide navigation buttons
       this.$calendar.find('.prev-btn, .next-btn').show();
@@ -1582,6 +1682,21 @@ class JalaliDatepicker {
       const mi = parseInt(this.selectedTime.minute, 10) || 0;
       const s = parseInt(this.selectedTime.second, 10) || 0;
 
+      if (
+        !Number.isFinite(jy) ||
+        !Number.isFinite(jm) ||
+        !Number.isFinite(jd) ||
+        jy < 1200 ||
+        jy > 1600
+      ) {
+        console.warn(
+          "[persian_calendar] invalid Jalali date parts; not applying picker value",
+          { jy, jm, jd }
+        );
+        this._isApplyingValue = false;
+        return;
+      }
+
       const jalaliStr = this.isDateTime
         ? formatJalaliDateTime(jy, jm, jd, h, mi, s)
         : formatJalaliDate(jy, jm, jd);
@@ -1707,7 +1822,58 @@ class JalaliDatepicker {
       this.updateCalendar();
     }
 
+    syncInputFromModel() {
+      const U = getDateUtils();
+      if (!U) {
+        return;
+      }
+      let model = null;
+      if (this.controlDate?.get_value) {
+        try {
+          model = this.controlDate.get_value();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      if (
+        (model == null || model === "") &&
+        this.controlDate?.grid_row?.doc &&
+        this.controlDate.df?.fieldname
+      ) {
+        model = this.controlDate.grid_row.doc[this.controlDate.df.fieldname];
+      }
+      if (model != null && model !== "") {
+        const iso = U.coerceToGregorianDateTime
+          ? U.coerceToGregorianDateTime(model) || U.normalizeModelDateTime(model)
+          : U.normalizeModelDateTime(model);
+        if (iso && iso !== model) {
+          if (this.controlDate?.set_value) {
+            this.controlDate.set_value(iso);
+          }
+          model = iso;
+        } else if (iso) {
+          model = iso;
+        }
+        const display = modelValueToDisplayInput(model, this.isDateTime);
+        if (display && !isUnsafeJalaliDisplayString(display)) {
+          this.$input.val(display);
+        }
+        return;
+      }
+      const visible = this.$input.val();
+      if (visible && U.coerceToGregorianDateTime) {
+        const iso = U.coerceToGregorianDateTime(visible);
+        if (iso) {
+          const display = modelValueToDisplayInput(iso, this.isDateTime);
+          if (display && !isUnsafeJalaliDisplayString(display)) {
+            this.$input.val(display);
+          }
+        }
+      }
+    }
+
     updateDisplay() {
+      this.syncInputFromModel();
       const value = this.$input.val();
       if (value) {
         if (this.isDateTime) {
@@ -2217,12 +2383,17 @@ class JalaliDatepicker {
     $input.attr("data-has-jalali-datepicker", "true");
     $input.data("jalaliDatepickerInstance", picker);
 
+    if (grid_row && fieldname) {
+      coerceGridRowDatetimeField(grid_row, fieldname, fieldtype);
+    }
+
     const raw =
       (grid_row && grid_row.doc && grid_row.doc[fieldname]) || $input.val();
     if (raw) {
       const display = modelValueToDisplayInput(raw, isDateTime);
-      if (display) {
+      if (display && !isUnsafeJalaliDisplayString(display)) {
         $input.val(display);
+        picker.syncInputFromModel();
         picker.updateDisplay();
       }
     }
@@ -2446,6 +2617,77 @@ class JalaliDatepicker {
     };
   }
 
+  function isUnsafeJalaliDisplayString(text) {
+    if (text == null || text === "") {
+      return false;
+    }
+    const s = String(text);
+    return /NaN/i.test(s) || /Invalid\s*date/i.test(s);
+  }
+
+  function coerceGridRowDatetimeField(grid_row, fieldname, fieldtype) {
+    const U = getDateUtils();
+    if (!U || !grid_row?.doc || !fieldname) {
+      return null;
+    }
+    const raw = grid_row.doc[fieldname];
+    if (raw == null || raw === "") {
+      return null;
+    }
+    const iso =
+      fieldtype === "Datetime"
+        ? U.coerceToGregorianDateTime(raw) || U.normalizeModelDateTime(raw)
+        : U.coerceToGregorianDateTime(raw) || U.normalizeModelDate(raw);
+    if (iso && iso !== raw) {
+      grid_row.doc[fieldname] = iso;
+    }
+    return iso || raw;
+  }
+
+  function normalizeFormDatetimesBeforeSave(frm) {
+    const U = getDateUtils();
+    if (!U || !frm?.doc || !shouldUseJalaliCalendar()) {
+      return;
+    }
+    const meta = frm.meta;
+    if (!meta?.fields) {
+      return;
+    }
+    for (const df of meta.fields) {
+      if (df.fieldtype === "Datetime" && frm.doc[df.fieldname]) {
+        const c = U.normalizeModelDateTime(frm.doc[df.fieldname]);
+        if (c) {
+          frm.doc[df.fieldname] = c;
+        }
+      } else if (df.fieldtype === "Date" && frm.doc[df.fieldname]) {
+        const c = U.coerceToGregorianDateTime(frm.doc[df.fieldname]);
+        if (c) {
+          frm.doc[df.fieldname] = c.slice(0, 10);
+        }
+      } else if (df.fieldtype === "Table" && frm.doc[df.fieldname]?.length) {
+        const childMeta = frappe.get_meta(df.options);
+        if (!childMeta) {
+          continue;
+        }
+        for (const row of frm.doc[df.fieldname]) {
+          for (const cdf of childMeta.fields) {
+            if (cdf.fieldtype === "Datetime" && row[cdf.fieldname]) {
+              const c = U.normalizeModelDateTime(row[cdf.fieldname]);
+              if (c) {
+                row[cdf.fieldname] = c;
+              }
+            } else if (cdf.fieldtype === "Date" && row[cdf.fieldname]) {
+              const c = U.coerceToGregorianDateTime(row[cdf.fieldname]);
+              if (c) {
+                row[cdf.fieldname] = c.slice(0, 10);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   function installFormGridJalaliHooks() {
     installMakeControlJalaliHook();
     installGridRowRefreshPatch();
@@ -2455,6 +2697,9 @@ class JalaliDatepicker {
         scheduleScanFormJalaliFields(frm);
         scheduleJalaliGridDisplayPasses(frm);
         scheduleMainFormJalaliDisplayPasses(frm);
+      },
+      before_save(frm) {
+        normalizeFormDatetimesBeforeSave(frm);
       },
     });
   }
@@ -2813,6 +3058,13 @@ class JalaliDatepicker {
           }
 
           const isDateTimeField = this.df && this.df.fieldtype === "Datetime";
+          if (this.grid_row && this.df?.fieldname) {
+            coerceGridRowDatetimeField(
+              this.grid_row,
+              this.df.fieldname,
+              this.df.fieldtype
+            );
+          }
           const modelVal = getControlModelValue(this) ?? value;
           const display = modelValueToDisplayInput(modelVal, isDateTimeField);
           jalaliDateLog("set_formatted_input displayed value", display);
@@ -2983,9 +3235,21 @@ class JalaliDatepicker {
             return;
           }
 
+          if (this.grid_row && this.df?.fieldname) {
+            coerceGridRowDatetimeField(
+              this.grid_row,
+              this.df.fieldname,
+              this.df.fieldtype
+            );
+          }
           const modelVal = getControlModelValue(this) ?? value;
           const display = modelValueToDisplayInput(modelVal, true);
-          frappe.ui.form.ControlData.prototype.set_formatted_input.call(this, display || "");
+          const safeDisplay =
+            display && !isUnsafeJalaliDisplayString(display) ? display : "";
+          frappe.ui.form.ControlData.prototype.set_formatted_input.call(
+            this,
+            safeDisplay
+          );
           if (this.jalaliDatepicker) {
             this.jalaliDatepicker.updateDisplay();
           }
