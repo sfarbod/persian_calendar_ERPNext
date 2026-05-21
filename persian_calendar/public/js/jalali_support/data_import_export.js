@@ -95,10 +95,15 @@ function inject_data_export_jalali_checkbox(frm) {
 		return;
 	}
 
-	const anchor =
+	let anchor =
 		frm.fields_dict.file_type?.$wrapper ||
-		frm.fields_dict.export_without_main_header?.$wrapper ||
-		frm.wrapper;
+		frm.fields_dict.export_without_main_header?.$wrapper;
+	if (!anchor?.length && frm.wrapper) {
+		anchor = frm.wrapper.jquery ? frm.wrapper : $(frm.wrapper);
+	}
+	if (!anchor?.length && frm.page?.wrapper) {
+		anchor = frm.page.wrapper.jquery ? frm.page.wrapper : $(frm.page.wrapper);
+	}
 
 	if (!anchor || !anchor.length) {
 		return;

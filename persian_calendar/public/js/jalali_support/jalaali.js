@@ -179,11 +179,42 @@
     return null;
   }
 
+  function incCallCount(name) {
+    try {
+      const win = typeof window !== "undefined" ? window : null;
+      if (!win) return;
+      win.__persianCalendarCallCounts = win.__persianCalendarCallCounts || {};
+      win.__persianCalendarCallCounts[name] =
+        (win.__persianCalendarCallCounts[name] || 0) + 1;
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function jalaliUiActive() {
+    try {
+      const rt = typeof frappe !== "undefined" && frappe.persian_calendar?.runtime;
+      if (rt?.shouldUseJalaliCalendarSync) {
+        return rt.shouldUseJalaliCalendarSync();
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return true;
+  }
+
   function formatJalaliParts(jy, jm, jd) {
     const y = parseInt(jy, 10);
     const m = parseInt(jm, 10);
     const d = parseInt(jd, 10);
     if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("[persian_calendar] formatJalaliParts rejected invalid parts", {
+          jy,
+          jm,
+          jd,
+        });
+      }
       return "";
     }
     return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -194,6 +225,7 @@
   }
 
   function gregorianToJalaliISO(value) {
+    if (!jalaliUiActive()) return null;
     if (!isLikelyGregorianISO(value)) return null;
     const p = parseYMD(value);
     if (!p) return null;
@@ -215,6 +247,9 @@
   }
 
   function gregorianDateTimeToJalali(value) {
+    if (!jalaliUiActive()) {
+      return null;
+    }
     const p = parseDateTimeParts(value);
     if (!p || p.y < 1700) return null;
     const j = toJalali(p.y, p.m, p.d);
@@ -232,6 +267,10 @@
    * Grid/list display: model stays Gregorian; show Jalali. Handles ISO, Jalali, and user formats (dd-mm-yyyy).
    */
   function valueToJalaliDisplay(value, fieldtype) {
+    incCallCount("valueToJalaliDisplay");
+    if (!jalaliUiActive()) {
+      return value == null ? "" : String(value);
+    }
     if (value == null || value === "") {
       return "";
     }

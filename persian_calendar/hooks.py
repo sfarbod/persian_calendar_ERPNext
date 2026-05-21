@@ -25,6 +25,10 @@ app_license = "mit"
 # ------------------
 
 app_include_js = ["jalali_support.bundle.js"]
+
+extend_bootinfo = [
+	"persian_calendar.jalali_support.boot.extend_bootinfo",
+]
 #app_include_css = ["persian_calendar.bundle.css"]
 
 # include js, css files in header of desk.html
@@ -143,6 +147,7 @@ jinja = {
 
 doc_events = {
 	"*": {
+		"before_validate": "persian_calendar.jalali_support.datetime_normalizer.normalize_doc_datetimes",
 		"validate": "persian_calendar.jalali_support.datetime_normalizer.normalize_doc_datetimes",
 	}
 }
