@@ -1,8 +1,4 @@
 (async function() {
-  if (!(frappe.boot && frappe.boot.persian_calendar && frappe.boot.persian_calendar.enabled)) {
-    return;
-  }
-
   const rt = () => frappe.persian_calendar?.runtime;
 
   function U() {
@@ -80,8 +76,7 @@
     if (rt()?.getEffectiveCalendarModeSync) {
       return rt().getEffectiveCalendarModeSync() === "Jalali";
     }
-    const boot = frappe.boot?.persian_calendar;
-    return !!(boot && boot.enabled && boot.display_calendar === "Jalali");
+    return rt()?.getEffectiveCalendarModeSync?.() === "Jalali";
   }
 
   const dt = frappe.datetime;

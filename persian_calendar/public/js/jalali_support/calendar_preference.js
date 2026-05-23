@@ -29,15 +29,15 @@
   }
 
   function resolveDisplayCalendar(userPref, defaultCalendar, jalaliEnabled) {
-    if (!jalaliEnabled) {
-      return "Gregorian";
-    }
     const pref = String(userPref || "System Default").trim();
+    if (pref === "Jalali" || pref === "Persian") {
+      return "Jalali";
+    }
     if (pref === "Gregorian") {
       return "Gregorian";
     }
-    if (pref === "Jalali" || pref === "Persian") {
-      return "Jalali";
+    if (!jalaliEnabled) {
+      return "Gregorian";
     }
     if (pref === "System Default") {
       return normalizeDefaultCalendar(defaultCalendar);
@@ -48,16 +48,22 @@
   /** Canonical effective mode: only "Jalali" or "Gregorian". */
   function getEffectiveCalendarModeSync() {
     const boot = readBoot();
-    if (!boot?.enabled) {
-      return "Gregorian";
+    if (boot && !boot.enabled) {
+      const pref = String(boot.calendar_preference || "System Default").trim();
+      const forced =
+        pref === "Jalali" || pref === "Persian" ? "Jalali" : "Gregorian";
+      boot.display_calendar = forced;
+      return forced;
     }
     const mode = resolveDisplayCalendar(
-      boot.calendar_preference,
-      boot.default_calendar,
-      boot.enabled
+      boot?.calendar_preference,
+      boot?.default_calendar,
+      !!boot?.enabled
     );
     const normalized = normalizeCalendarMode(mode);
-    boot.display_calendar = normalized;
+    if (boot) {
+      boot.display_calendar = normalized;
+    }
     return normalized;
   }
 
@@ -79,12 +85,14 @@
     if (!boot) {
       return;
     }
+    const pref = String(boot.calendar_preference || "System Default").trim();
+    if (!boot.enabled) {
+      boot.display_calendar =
+        pref === "Jalali" || pref === "Persian" ? "Jalali" : "Gregorian";
+      return;
+    }
     boot.display_calendar = normalizeCalendarMode(
-      resolveDisplayCalendar(
-        boot.calendar_preference,
-        boot.default_calendar,
-        boot.enabled
-      )
+      resolveDisplayCalendar(pref, boot.default_calendar, true)
     );
   }
 
@@ -123,10 +131,6 @@
   }
 
   function shouldUseJalaliCalendarSync() {
-    const boot = readBoot();
-    if (!boot?.enabled) {
-      return false;
-    }
     return getEffectiveCalendarModeSync() === "Jalali";
   }
 
@@ -164,8 +168,22 @@
 
   function applyFetchedSettings(enabled, calendar, firstDay, defaultCalendar) {
     const boot = readBoot();
+    if (boot && !boot.enabled) {
+      enabled = false;
+      const pref = String(boot.calendar_preference || "System Default").trim();
+      calendar = {
+        display_calendar:
+          pref === "Jalali" || pref === "Persian" ? "Jalali" : "Gregorian",
+        week_start: calendar?.week_start ?? boot.week_start ?? 0,
+        week_end: calendar?.week_end ?? boot.week_end ?? 6,
+      };
+    }
     if (boot && calendar) {
-      boot.enabled = !!enabled;
+      if (boot.enabled) {
+        boot.enabled = !!enabled;
+      } else {
+        boot.enabled = false;
+      }
       boot.week_start = calendar.week_start;
       boot.week_end = calendar.week_end;
       if (defaultCalendar) {
@@ -174,7 +192,7 @@
       syncBootDisplayCalendar();
     }
     settingsCache = {
-      enabled: !!enabled,
+      enabled: boot && !boot.enabled ? false : !!enabled,
       calendar,
       firstDay,
       default_calendar: defaultCalendar,

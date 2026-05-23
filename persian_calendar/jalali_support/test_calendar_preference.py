@@ -1,4 +1,5 @@
 # Copyright (c) 2025, Persian Calendar Contributors
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import (
@@ -47,6 +48,15 @@ class TestCalendarPreference(FrappeTestCase):
 		)
 		effective = JalaliSettings.get_effective_calendar(user)
 		self.assertEqual(effective["display_calendar"], settings.default_calendar)
+
+	def test_user_jalali_when_global_disabled(self):
+		user = frappe.session.user
+		if user == "Guest":
+			self.skipTest("No logged-in user")
+		frappe.db.set_value("Jalali Settings", "Jalali Settings", "enabled", 0, update_modified=False)
+		frappe.db.set_value("User", user, "calendar_preference", "Jalali", update_modified=False)
+		effective = JalaliSettings.get_effective_calendar(user)
+		self.assertEqual(effective["display_calendar"], "Jalali")
 
 	def test_boot_extend_bootinfo_shape(self):
 		from persian_calendar.jalali_support.boot import extend_bootinfo

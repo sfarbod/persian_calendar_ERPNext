@@ -63,14 +63,6 @@ class JalaliSettings(Document):
         """
         settings = JalaliSettings.get_settings()
         
-        # مرحله 1: اگر enable_jalali = False باشد
-        if not settings.enabled:
-            return {
-                "display_calendar": "Gregorian",
-                "week_start": 0,  # یکشنبه
-                "week_end": 6     # شنبه
-            }
-        
         # مرحله 2: دریافت تنظیمات کاربر از User Settings
         user_calendar_preference = "System Default"  # Default value
         
@@ -95,18 +87,27 @@ class JalaliSettings(Document):
                 user_calendar_preference = "System Default"
         
         # مرحله 3: تعیین تقویم نمایش بر اساس user_calendar_preference
-        if user_calendar_preference == "System Default":
-            display_calendar = settings.default_calendar
-        elif user_calendar_preference == "Jalali":
+        if user_calendar_preference == "Jalali":
             display_calendar = "Jalali"
         elif user_calendar_preference == "Gregorian":
             display_calendar = "Gregorian"
+        elif user_calendar_preference == "System Default":
+            display_calendar = settings.default_calendar if settings.enabled else "Gregorian"
         else:
-            display_calendar = settings.default_calendar
-        
-        # مرحله 4: week_start فقط اگر enable_jalali = True باشد اعمال می‌شود
+            display_calendar = settings.default_calendar if settings.enabled else "Gregorian"
+
+        if not settings.enabled and user_calendar_preference != "Jalali":
+            display_calendar = "Gregorian"
+
+        if display_calendar == "Jalali":
+            week_start = settings.week_start
+            week_end = settings.week_end
+        else:
+            week_start = 0
+            week_end = 6
+
         return {
             "display_calendar": display_calendar,
-            "week_start": settings.week_start,
-            "week_end": settings.week_end
+            "week_start": week_start,
+            "week_end": week_end,
         }

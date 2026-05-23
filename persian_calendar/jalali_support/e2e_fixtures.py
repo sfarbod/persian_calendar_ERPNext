@@ -265,7 +265,9 @@ def prepare_work_order_for_job_card_save(job_card: str) -> dict[str, Any]:
 
 @frappe.whitelist()
 def set_calendar_e2e_context(
-	default_calendar: str = "Jalali", user_calendar_preference: str = "System Default"
+	default_calendar: str = "Jalali",
+	user_calendar_preference: str = "System Default",
+	persian_calendar_enabled: bool | None = None,
 ) -> dict[str, Any]:
 	"""E2E: set Administrator calendar preference and site default_calendar."""
 	_require_e2e()
@@ -283,9 +285,44 @@ def set_calendar_e2e_context(
 	frappe.db.set_value(
 		"Jalali Settings", "Jalali Settings", "default_calendar", default_calendar, update_modified=False
 	)
+	if persian_calendar_enabled is not None:
+		frappe.db.set_value(
+			"Jalali Settings",
+			"Jalali Settings",
+			"enable_jalali",
+			1 if persian_calendar_enabled else 0,
+			update_modified=False,
+		)
 	frappe.db.commit()
+	frappe.clear_cache()
+	try:
+		frappe.clear_document_cache("User", "Administrator")
+	except Exception:
+		pass
 	return {
 		"user": "Administrator",
 		"default_calendar": default_calendar,
 		"calendar_preference": user_calendar_preference,
+		"persian_calendar_enabled": persian_calendar_enabled,
+	}
+
+
+@frappe.whitelist()
+def get_calendar_e2e_debug_state() -> dict[str, Any]:
+	"""Server-side calendar state for E2E failure dumps."""
+	_require_e2e()
+	from persian_calendar.jalali_support.doctype.jalali_settings.jalali_settings import (
+		JalaliSettings,
+	)
+
+	settings = JalaliSettings.get_settings()
+	user_pref = (
+		frappe.db.get_value("User", "Administrator", "calendar_preference") or "System Default"
+	)
+	effective = JalaliSettings.get_effective_calendar(user="Administrator")
+	return {
+		"user_calendar_preference": user_pref,
+		"jalali_settings_enabled": bool(settings.enabled),
+		"jalali_settings_default_calendar": settings.default_calendar,
+		"effective_display_calendar": effective.get("display_calendar"),
 	}

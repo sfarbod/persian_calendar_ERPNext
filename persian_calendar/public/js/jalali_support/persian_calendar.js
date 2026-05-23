@@ -17,7 +17,7 @@
       return rt.getEffectiveCalendarModeSync();
     }
     const boot = frappe.boot?.persian_calendar;
-    if (!boot?.enabled) {
+    if (!boot) {
       return "Gregorian";
     }
     return boot.display_calendar === "Jalali" ? "Jalali" : "Gregorian";
@@ -96,7 +96,7 @@
     }
     const mode = getEffectiveCalendarMode();
     if (frappe.boot?.persian_calendar) {
-      return frappe.boot.persian_calendar.enabled && mode === "Jalali";
+      return mode === "Jalali";
     }
     if (calendarSettingsCache !== null) {
       return (
@@ -699,6 +699,7 @@
     if (!control || !control.jalaliDatepicker) return;
     const jalaliInstance = control.jalaliDatepicker;
     control.datepicker = {
+      _pcJalaliShim: true,
       opts: {},
       update(keyOrOpts, val) {
         if (typeof keyOrOpts === "object" && keyOrOpts !== null) {
@@ -2692,7 +2693,7 @@ class JalaliDatepicker {
         }
         const field = this.on_grid_fields_dict?.[fieldname];
         if (field) {
-          setTimeout(() => ensureGregorianNativeDatepicker(field), 0);
+          ensureGregorianNativeDatepickerActive(field);
         }
         return;
       }
@@ -2835,6 +2836,123 @@ class JalaliDatepicker {
     return picker;
   }
 
+  function clearJalaliShimDatepicker(field) {
+    if (!field) {
+      return;
+    }
+    const dp = field.datepicker;
+    if (dp && (dp._pcJalaliShim || !dp.$datepicker)) {
+      field.datepicker = null;
+    }
+  }
+
+  function hasNativeAirDatepicker(field) {
+    if (!field?.$input?.length) {
+      return false;
+    }
+    const dp = field.datepicker || field.$input.data("datepicker");
+    return !!(dp && dp.$datepicker);
+  }
+
+  function ensureGregorianNativeDatepickerActive(field) {
+    if (!field?.$input?.length || shouldUseJalaliCalendar()) {
+      return;
+    }
+    clearJalaliShimDatepicker(field);
+    if (
+      field.$input.data("jalaliDatepickerInstance") ||
+      field.$input.attr("data-has-jalali-datepicker") === "true"
+    ) {
+      destroyJalaliDatepickerOnInput(field.$input);
+    }
+    if (!hasNativeAirDatepicker(field)) {
+      reinitializeGregorianDateControl(field);
+    }
+  }
+
+  function logGregorianGridPickerClick($input, field, extra) {
+    try {
+      if (localStorage.getItem("persian_calendar_grid_picker_debug") !== "1") {
+        return;
+      }
+    } catch (e) {
+      return;
+    }
+    const $fc = $input.closest(".frappe-control");
+    const rt = frappe.persian_calendar?.runtime;
+    const dpData = $input.data("datepicker");
+    const controlDp = field?.datepicker;
+    const events =
+      $input[0] &&
+      (typeof $._data === "function"
+        ? $._data($input[0], "events")
+        : $input[0].__events);
+    console.warn("[persian_calendar grid picker debug]", {
+      fieldname: field?.df?.fieldname || $fc.attr("data-fieldname"),
+      fieldtype: field?.df?.fieldtype || $fc.attr("data-fieldtype"),
+      effective_mode: rt?.getEffectiveCalendarModeSync?.(),
+      readOnly: $input.prop("readOnly"),
+      disabled: $input.prop("disabled"),
+      hasDatepicker: $input.hasClass("hasDatepicker"),
+      dataDatepicker: !!dpData,
+      controlDatepicker: !!controlDp,
+      controlDatepickerIsShim: !!(controlDp && controlDp._pcJalaliShim),
+      nativeAir: hasNativeAirDatepicker(field || { $input, datepicker: controlDp }),
+      jalaliOnField: !!field?.jalaliDatepicker,
+      jalaliOnInput: !!$input.data("jalaliDatepickerInstance"),
+      inputHandlers: events ? Object.keys(events) : null,
+      airPopupVisible: (function () {
+        const nodes = document.querySelectorAll(".datepicker");
+        for (let i = 0; i < nodes.length; i++) {
+          const s = window.getComputedStyle(nodes[i]);
+          if (s.display !== "none" && s.visibility !== "hidden" && nodes[i].offsetParent) {
+            return true;
+          }
+        }
+        return false;
+      })(),
+      ...extra,
+    });
+  }
+
+  function installGregorianGridPickerDebug() {
+    if (window.__pcGregorianGridPickerDebugInstalled) {
+      return;
+    }
+    window.__pcGregorianGridPickerDebugInstalled = true;
+    $(document).on(
+      "mousedown.pcGregorianGridPickerDebug click.pcGregorianGridPickerDebug",
+      ".form-grid .frappe-control[data-fieldtype='Datetime'] input, .form-grid .frappe-control[data-fieldtype='Date'] input, .form-in-grid .frappe-control[data-fieldtype='Datetime'] input, .form-in-grid .frappe-control[data-fieldtype='Date'] input",
+      function () {
+        if (shouldUseJalaliCalendar()) {
+          return;
+        }
+        const $input = $(this);
+        const $fc = $input.closest(".frappe-control");
+        const fieldname = $fc.attr("data-fieldname");
+        let field = null;
+        if (cur_frm) {
+          for (const f of Object.values(cur_frm.fields_dict || {})) {
+            if (!f?.grid?.grid_rows) {
+              continue;
+            }
+            for (const r of f.grid.grid_rows) {
+              if (gridRowContainsInput(r, $input)) {
+                field = r.on_grid_fields_dict?.[fieldname];
+                break;
+              }
+            }
+            if (field) {
+              break;
+            }
+          }
+        }
+        logGregorianGridPickerClick($input, field, { phase: "click" });
+        setTimeout(() => logGregorianGridPickerClick($input, field, { phase: "after50ms" }), 50);
+      }
+    );
+  }
+
   function stripJalaliPickerFromField(field) {
     if (!field) {
       return;
@@ -2856,6 +2974,7 @@ class JalaliDatepicker {
     if (field.$input && field.$input.length) {
       destroyJalaliDatepickerOnInput(field.$input);
     }
+    clearJalaliShimDatepicker(field);
   }
 
   /** Remove Jalali UI only; never tear down Frappe's native Air Datepicker. */
@@ -2863,36 +2982,183 @@ class JalaliDatepicker {
     stripJalaliPickerFromField(field);
   }
 
-  /** Ensure native Air Datepicker exists on Gregorian Date/Datetime controls. */
-  function ensureGregorianNativeDatepicker(field) {
-    if (!field || shouldUseJalaliCalendar()) {
+  /** ISO model value for Frappe native set_formatted_input (avoids DD-MM mis-parse in picker). */
+  function gregorianInputValueForBase(control, incomingValue) {
+    const iso = getGregorianControlModelIso(control);
+    if (iso) {
+      return iso;
+    }
+    const U = getDateUtils();
+    if (!U || incomingValue == null || incomingValue === "") {
+      return incomingValue;
+    }
+    const ft = control?.df?.fieldtype;
+    if (ft === "Datetime") {
+      return (
+        U.coerceToGregorianDateTime(incomingValue) ||
+        U.normalizeModelDateTime(incomingValue) ||
+        incomingValue
+      );
+    }
+    if (ft === "Date") {
+      const d =
+        U.coerceToGregorianDateTime(incomingValue) || U.normalizeModelDate(incomingValue);
+      return d ? String(d).slice(0, 10) : incomingValue;
+    }
+    return incomingValue;
+  }
+
+  function getGregorianControlModelIso(field) {
+    const U = getDateUtils();
+    if (!field || !U) {
+      return null;
+    }
+    const ft = field.df?.fieldtype;
+    if (ft !== "Date" && ft !== "Datetime") {
+      return null;
+    }
+    if (field.grid_row?.doc && field.df?.fieldname) {
+      coerceGridRowDatetimeField(
+        field.grid_row,
+        field.df.fieldname,
+        ft
+      );
+    }
+    let raw =
+      (field.grid_row?.doc && field.df?.fieldname
+        ? field.grid_row.doc[field.df.fieldname]
+        : null) ??
+      (typeof field.get_model_value === "function" ? field.get_model_value() : null) ??
+      (field.doc && field.df?.fieldname ? field.doc[field.df.fieldname] : null);
+    if (raw == null || raw === "") {
+      return null;
+    }
+    if (ft === "Datetime") {
+      return U.coerceToGregorianDateTime(raw) || U.normalizeModelDateTime(raw);
+    }
+    const d = U.coerceToGregorianDateTime(raw) || U.normalizeModelDate(raw);
+    return d ? String(d).slice(0, 10) : null;
+  }
+
+  /** Parse storage ISO only — never ambiguous DD-MM-YYYY display text. */
+  function gregorianIsoToPickerDate(iso, fieldtype) {
+    if (!iso) {
+      return null;
+    }
+    const s = String(iso).trim();
+    const isDt = fieldtype === "Datetime";
+    if (isDt) {
+      let m = moment(s, ["YYYY-MM-DD HH:mm:ss", "YYYY-MM-DD HH:mm"], true);
+      if (!m.isValid()) {
+        const U = getDateUtils();
+        const c = U?.coerceToGregorianDateTime(s);
+        if (c) {
+          m = moment(c, "YYYY-MM-DD HH:mm:ss", true);
+        }
+      }
+      return m.isValid() ? m.toDate() : null;
+    }
+    const m = moment(s.slice(0, 10), "YYYY-MM-DD", true);
+    return m.isValid() ? m.toDate() : null;
+  }
+
+  function syncGregorianNativePickerFromModel(field) {
+    if (!field || shouldUseJalaliCalendar() || !field.datepicker) {
       return;
     }
-    if (field._pcEnsuringGregorianPicker) {
+    const iso = getGregorianControlModelIso(field);
+    if (!iso) {
       return;
     }
-    field._pcEnsuringGregorianPicker = true;
+    const dateObj = gregorianIsoToPickerDate(iso, field.df?.fieldtype);
+    if (!dateObj) {
+      return;
+    }
     try {
-      stripJalaliPickerFromField(field);
-      if (!field.$input?.length || isTimeFieldInput(field.$input)) {
-        return;
-      }
-      if (field.datepicker) {
-        return;
-      }
-      if (typeof field.make_picker === "function") {
-        field.make_picker();
-      } else if (typeof field.set_datepicker === "function") {
-        field.set_datepicker();
+      field.datepicker.selectDate(dateObj);
+      field.datepicker.viewDate = dateObj;
+      const $dp = field.datepicker.$datepicker;
+      if ($dp && $dp.length && typeof moment !== "undefined") {
+        const titleText = moment(dateObj).format("MMMM, YYYY");
+        $dp.find(".datepicker--nav-title").text(titleText);
       }
     } catch (e) {
-      pcTrace("ensureGregorianNativeDatepicker failed", {
+      pcTrace("syncGregorianNativePickerFromModel failed", {
         field: field.df?.fieldname,
+        iso,
         error: String(e),
       });
-    } finally {
-      field._pcEnsuringGregorianPicker = false;
     }
+  }
+
+  function hookGregorianPickerOnShow(field) {
+    if (!field?.datepicker || field._pcGregorianOnShowHooked || shouldUseJalaliCalendar()) {
+      return;
+    }
+    field._pcGregorianOnShowHooked = true;
+    const dp = field.datepicker;
+    const origOnShow = dp.opts && dp.opts.onShow;
+    const wrappedOnShow = () => {
+      syncGregorianNativePickerFromModel(field);
+      if (typeof origOnShow === "function") {
+        origOnShow.call(dp);
+      }
+      syncGregorianNativePickerFromModel(field);
+    };
+    if (typeof dp.update === "function") {
+      dp.update({ onShow: wrappedOnShow });
+    } else if (dp.opts) {
+      dp.opts.onShow = wrappedOnShow;
+    }
+  }
+
+  /**
+   * Gregorian display in user format, but Air Datepicker selected/view date from ISO model.
+   */
+  function setGregorianFormattedInputFromModel(control, value) {
+    const ft = control.df?.fieldtype;
+    const BaseSet =
+      ft === "Datetime"
+        ? BaseControlDatetime.prototype.set_formatted_input
+        : BaseControlDate.prototype.set_formatted_input;
+    if (!value) {
+      return BaseSet.call(control, value);
+    }
+    ensureGregorianNativeDatepicker(control);
+    const U = getDateUtils();
+    let iso = getGregorianControlModelIso(control);
+    if (!iso && U) {
+      iso =
+        ft === "Datetime"
+          ? U.coerceToGregorianDateTime(value) || U.normalizeModelDateTime(value)
+          : U.coerceToGregorianDateTime(value) || U.normalizeModelDate(value);
+      if (iso && ft === "Date") {
+        iso = String(iso).slice(0, 10);
+      }
+    }
+    if (!iso) {
+      return BaseSet.call(control, value);
+    }
+    const display =
+      ft === "Datetime"
+        ? BaseControlDatetime.prototype.format_for_input.call(control, iso)
+        : BaseControlDate.prototype.format_for_input.call(control, iso);
+    if (control.$input?.length) {
+      control.$input.val(display);
+    }
+    if (control.datepicker) {
+      const dateObj = gregorianIsoToPickerDate(iso, ft);
+      if (dateObj) {
+        control.datepicker.selectDate(dateObj);
+        control.datepicker.viewDate = dateObj;
+      }
+    }
+    control.last_value = display;
+  }
+
+  /** Gregorian mode: ensure native Air Datepicker exists (passive — no custom click/focus hooks). */
+  function ensureGregorianNativeDatepicker(field) {
+    ensureGregorianNativeDatepickerActive(field);
   }
 
   function reinitializeGregorianDateControl(field) {
@@ -2943,24 +3209,9 @@ class JalaliDatepicker {
       $input.siblings(".jalali-datepicker").remove();
     });
     const frm = typeof cur_frm !== "undefined" ? cur_frm : null;
-    if (!frm) {
-      return;
+    if (frm) {
+      frm.refresh_fields();
     }
-    for (const field of Object.values(frm.fields_dict || {})) {
-      if (field?.df?.fieldtype === "Date" || field?.df?.fieldtype === "Datetime") {
-        reinitializeGregorianDateControl(field);
-      }
-    }
-    for (const grid of frm.grids || []) {
-      for (const row of grid.grid_rows || []) {
-        for (const field of Object.values(row.on_grid_fields_dict || {})) {
-          if (field?.df?.fieldtype === "Date" || field?.df?.fieldtype === "Datetime") {
-            reinitializeGregorianDateControl(field);
-          }
-        }
-      }
-    }
-    normalizeGregorianDatetimeInputsInForm(frm);
   }
 
   function ensureJalaliPickerForControl(field, ctx) {
@@ -2969,7 +3220,7 @@ class JalaliDatepicker {
     if (ft !== "Date" && ft !== "Datetime") return;
     if (!shouldUseJalaliCalendar()) {
       stripJalaliPickerFromField(field);
-      ensureGregorianNativeDatepicker(field);
+      ensureGregorianNativeDatepickerActive(field);
       return;
     }
 
@@ -2980,10 +3231,14 @@ class JalaliDatepicker {
     });
 
     if (field.jalaliDatepicker) {
-      if (field.$input && field.$input.length) {
-        destroyAirDatepickerForInput(field.$input);
+      const inputEl = field.$input && field.$input[0];
+      if (inputEl && field.jalaliDatepicker.input === inputEl) {
+        if (field.$input && field.$input.length) {
+          destroyAirDatepickerForInput(field.$input);
+        }
+        return;
       }
-      return;
+      stripJalaliPickerFromField(field);
     }
 
     if (field.$input && field.$input.length) {
@@ -3116,47 +3371,12 @@ class JalaliDatepicker {
       }, 100);
     });
     bindGridDisplayMutationObserver(frm);
+    installGregorianGridPickerDebug();
     $wrapper.on(
       "focusin.jalali-grid-datetime",
       '.form-grid .frappe-control[data-fieldtype="Datetime"] input, .form-grid .frappe-control[data-fieldtype="Date"] input, .form-in-grid .frappe-control[data-fieldtype="Datetime"] input, .form-in-grid .frappe-control[data-fieldtype="Date"] input',
       function () {
         const $input = $(this);
-        if (!shouldUseJalaliCalendar()) {
-          destroyJalaliDatepickerOnInput($input);
-          const $fc = $input.closest(".frappe-control");
-          const fieldtype = $fc.attr("data-fieldtype");
-          const fieldname = $fc.attr("data-fieldname");
-          let grid_row = null;
-          if (cur_frm) {
-            for (const f of Object.values(cur_frm.fields_dict || {})) {
-              if (!f?.grid?.grid_rows) continue;
-              for (const r of f.grid.grid_rows) {
-                if (gridRowContainsInput(r, $input)) {
-                  grid_row = r;
-                  break;
-                }
-              }
-              if (grid_row) break;
-            }
-          }
-          if (fieldtype === "Datetime" || fieldtype === "Date") {
-            normalizeGregorianDatetimeInput($input, {
-              scope: "grid-focus",
-              field: fieldname,
-              grid_row,
-            });
-          }
-          const control = grid_row?.on_grid_fields_dict?.[fieldname];
-          if (control) {
-            ensureGregorianNativeDatepicker(control);
-          }
-          pcTrace("focusin.jalali-grid-datetime Gregorian cleanup", {
-            field: fieldname,
-            value: $input.val(),
-          });
-          return;
-        }
-        destroyAirDatepickerForInput($input);
         const $fc = $input.closest(".frappe-control");
         const fieldname = $fc.attr("data-fieldname");
         const fieldtype = $fc.attr("data-fieldtype");
@@ -3176,6 +3396,11 @@ class JalaliDatepicker {
           }
         }
         const control = grid_row?.on_grid_fields_dict?.[fieldname];
+        if (!shouldUseJalaliCalendar()) {
+          logGregorianGridPickerClick($input, control, { phase: "focusin" });
+          return;
+        }
+        destroyAirDatepickerForInput($input);
         if (control) {
           ensureJalaliPickerForControl(control, { frm: cur_frm, grid: grid_row?.grid, grid_row });
         } else if (fieldname && fieldtype) {
@@ -3418,7 +3643,7 @@ class JalaliDatepicker {
   }
 
   function sanitizeTimeFieldsBeforeSave(frm) {
-    if (!frm?.doc || !frm.meta?.fields) {
+    if (!frm?.doc || !frm.meta?.fields || !shouldUseJalaliCalendar()) {
       return;
     }
     for (const df of frm.meta.fields) {
@@ -3450,7 +3675,7 @@ class JalaliDatepicker {
   }
 
   function syncDateFieldsFromControlsBeforeSave(frm) {
-    if (!frm?.doc || !frm.meta?.fields) {
+    if (!frm?.doc || !frm.meta?.fields || !shouldUseJalaliCalendar()) {
       return;
     }
     const U = getDateUtils();
@@ -3489,11 +3714,14 @@ class JalaliDatepicker {
   }
 
   function normalizeFormDatetimesBeforeSave(frm) {
+    if (!shouldUseJalaliCalendar()) {
+      normalizeGregorianDatetimesInForm(frm);
+      return;
+    }
     sanitizeTimeFieldsBeforeSave(frm);
     syncDateFieldsFromControlsBeforeSave(frm);
     const U = getDateUtils();
-    if (!U || !frm?.doc || !shouldUseJalaliCalendar()) {
-      normalizeGregorianDatetimesInForm(frm);
+    if (!U || !frm?.doc) {
       return;
     }
     const meta = frm.meta;
@@ -3565,6 +3793,26 @@ class JalaliDatepicker {
         if (!shouldUseJalaliCalendar()) {
           stripAllJalaliPickersInForm(frm);
           normalizeGregorianDatetimesInForm(frm);
+          Object.values(frm.fields_dict || {}).forEach((f) => {
+            if (f?.grid?.grid_rows) {
+              f.grid.grid_rows.forEach((row) => {
+                const dict = row.on_grid_fields_dict || {};
+                Object.values(dict).forEach((gf) => {
+                  if (
+                    gf?.df &&
+                    (gf.df.fieldtype === "Date" || gf.df.fieldtype === "Datetime")
+                  ) {
+                    ensureGregorianNativeDatepickerActive(gf);
+                  }
+                });
+              });
+            } else if (
+              f?.df &&
+              (f.df.fieldtype === "Date" || f.df.fieldtype === "Datetime")
+            ) {
+              ensureGregorianNativeDatepickerActive(f);
+            }
+          });
         }
         bindJalaliGridFormEvents(frm);
         if (shouldUseJalaliCalendar()) {
@@ -3634,7 +3882,6 @@ class JalaliDatepicker {
             } else if (!wantJalali && this.jalaliDatepicker) {
               stripJalaliPickerFromField(this);
               this.jalaliDatepicker = null;
-              ensureGregorianNativeDatepicker(this);
             }
           });
         }
@@ -3765,7 +4012,6 @@ class JalaliDatepicker {
       
       replaceWithJalaliDatepicker() {
         if (!shouldUseJalaliCalendar()) {
-          ensureGregorianNativeDatepicker(this);
           return;
         }
         // If Jalali datepicker already exists, don't recreate it
@@ -3899,12 +4145,16 @@ class JalaliDatepicker {
               stripJalaliPickerFromField(this);
               this.jalaliDatepicker = null;
             }
-            ensureGregorianNativeDatepicker(this);
-            // Use correct base so Datetime fields get value (incl. time) set correctly; avoids "Not Saved" / broken actions
-            if (this.df && this.df.fieldtype === "Datetime") {
-              return BaseControlDatetime.prototype.set_formatted_input.call(this, value);
+            const forBase = gregorianInputValueForBase(this, value);
+            const BaseSet =
+              this.df?.fieldtype === "Datetime"
+                ? BaseControlDatetime.prototype.set_formatted_input
+                : BaseControlDate.prototype.set_formatted_input;
+            const ret = BaseSet.call(this, forBase);
+            if (this.datepicker) {
+              syncGregorianNativePickerFromModel(this);
             }
-            return BaseControlDate.prototype.set_formatted_input.call(this, value);
+            return ret;
           }
 
           if (!value) {
@@ -3937,8 +4187,7 @@ class JalaliDatepicker {
             stripJalaliPickerFromField(this);
             this.jalaliDatepicker = null;
           }
-          ensureGregorianNativeDatepicker(this);
-          if (this.grid_row && this.df?.fieldname) {
+          if (this.grid_row?.doc && this.df?.fieldname) {
             coerceGridRowDatetimeField(
               this.grid_row,
               this.df.fieldname,
@@ -3947,18 +4196,6 @@ class JalaliDatepicker {
             const m = this.grid_row.doc[this.df.fieldname];
             if (m) {
               value = m;
-            }
-          } else {
-            const U = getDateUtils();
-            if (U && value) {
-              const c =
-                this.df?.fieldtype === "Datetime"
-                  ? U.coerceToGregorianDateTime(value) ||
-                    U.normalizeModelDateTime(value)
-                  : U.coerceToGregorianDateTime(value) || U.normalizeModelDate(value);
-              if (c) {
-                value = c;
-              }
             }
           }
           return BaseControlDate.prototype.format_for_input.call(this, value);
@@ -4032,6 +4269,8 @@ class JalaliDatepicker {
           BaseControlDate.prototype.refresh_input.call(this);
         if (shouldUseJalaliCalendar()) {
           applyJalaliControlDisplay(this);
+        } else {
+          ensureGregorianNativeDatepickerActive(this);
         }
         return result;
       }
@@ -4054,12 +4293,7 @@ class JalaliDatepicker {
         super.make_input();
         if (!shouldUseJalaliCalendar()) {
           removeJalaliFromField(this);
-          if (this.$input?.length) {
-            destroyJalaliDatepickerOnInput(this.$input);
-          }
-          if (BaseControlDatetime.prototype.set_date_options) {
-            BaseControlDatetime.prototype.set_date_options.call(this);
-          }
+          ensureGregorianNativeDatepickerActive(this);
           return;
         }
         if (!this.jalaliDatepicker) {
@@ -4085,8 +4319,7 @@ class JalaliDatepicker {
             stripJalaliPickerFromField(this);
             this.jalaliDatepicker = null;
           }
-          ensureGregorianNativeDatepicker(this);
-          if (this.grid_row && this.df?.fieldname) {
+          if (this.grid_row?.doc && this.df?.fieldname) {
             coerceGridRowDatetimeField(
               this.grid_row,
               this.df.fieldname,
@@ -4095,12 +4328,6 @@ class JalaliDatepicker {
             const m = this.grid_row.doc[this.df.fieldname];
             if (m) {
               value = m;
-            }
-          } else {
-            const U = getDateUtils();
-            const c = U?.coerceToGregorianDateTime(value) || U?.normalizeModelDateTime(value);
-            if (c) {
-              value = c;
             }
           }
           return BaseControlDatetime.prototype.format_for_input.call(this, value);
@@ -4116,12 +4343,12 @@ class JalaliDatepicker {
 
       refresh_input() {
         if (!shouldUseJalaliCalendar()) {
-          stripJalaliPickerFromField(this);
-          const result =
+          removeJalaliFromField(this);
+          const ret =
             BaseControlDatetime.prototype.refresh_input &&
             BaseControlDatetime.prototype.refresh_input.call(this);
-          ensureGregorianNativeDatepicker(this);
-          return result;
+          ensureGregorianNativeDatepickerActive(this);
+          return ret;
         }
         if (shouldUseJalaliCalendar()) {
           if (this.$input?.length) {
@@ -4150,8 +4377,12 @@ class JalaliDatepicker {
               stripJalaliPickerFromField(this);
               this.jalaliDatepicker = null;
             }
-            ensureGregorianNativeDatepicker(this);
-            return BaseControlDatetime.prototype.set_formatted_input.call(this, value);
+            const forBase = gregorianInputValueForBase(this, value);
+            const ret = BaseControlDatetime.prototype.set_formatted_input.call(this, forBase);
+            if (this.datepicker) {
+              syncGregorianNativePickerFromModel(this);
+            }
+            return ret;
           }
 
           if (!value) {

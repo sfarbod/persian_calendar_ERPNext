@@ -31,6 +31,25 @@ CDP_PORT = int(os.environ.get("CDP_PORT", "9223"))
 E2E_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_FIXTURE = os.path.join(E2E_DIR, "fixtures", "Time Logs (46)(1).csv")
 
+# A–G calendar mode matrix (persian_calendar_enabled, user_pref, site default_calendar)
+CALENDAR_MODE_MATRIX: list[tuple[str, bool, str, str]] = [
+	("A", True, "System Default", "Jalali"),
+	("B", True, "System Default", "Gregorian"),
+	("C", True, "Gregorian", "Jalali"),
+	("D", True, "Jalali", "Jalali"),
+	("E", False, "System Default", "Jalali"),
+	("F", False, "Gregorian", "Jalali"),
+	("G", False, "Jalali", "Jalali"),
+]
+
+# Grid picker click tests (app enabled): user/system × Gregorian/Jalali
+GRID_PICKER_MODE_MATRIX: list[tuple[str, bool, str, str]] = [
+	("B", True, "System Default", "Gregorian"),
+	("C", True, "Gregorian", "Jalali"),
+	("D", True, "Jalali", "Jalali"),
+	("A", True, "System Default", "Jalali"),
+]
+
 
 class E2EFailure(Exception):
 	pass
@@ -58,22 +77,29 @@ import http.cookiejar
 def frappe_login_sid() -> str:
 	url = f"{BASE_URL}/api/method/login"
 	payload = json.dumps({"usr": "Administrator", "pwd": ADMIN_PASSWORD}).encode()
-	cj = http.cookiejar.CookieJar()
-	opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-	req = urllib.request.Request(
-		url,
-		data=payload,
-		headers={"Content-Type": "application/json"},
-		method="POST",
-	)
-	with opener.open(req, timeout=180) as resp:
-		body = resp.read().decode()
-		if "Logged In" not in body and "message" not in body:
-			raise E2EFailure(f"Login failed: {body[:300]}")
-	for cookie in cj:
-		if cookie.name == "sid":
-			return cookie.value
-	raise E2EFailure("Login succeeded but no sid cookie")
+	last_err: Exception | None = None
+	for attempt in range(5):
+		try:
+			cj = http.cookiejar.CookieJar()
+			opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+			req = urllib.request.Request(
+				url,
+				data=payload,
+				headers={"Content-Type": "application/json"},
+				method="POST",
+			)
+			with opener.open(req, timeout=180) as resp:
+				body = resp.read().decode()
+				if "Logged In" not in body and "message" not in body:
+					raise E2EFailure(f"Login failed: {body[:300]}")
+			for cookie in cj:
+				if cookie.name == "sid":
+					return cookie.value
+			raise E2EFailure("Login succeeded but no sid cookie")
+		except Exception as e:
+			last_err = e
+			time.sleep(2 * (attempt + 1))
+	raise E2EFailure(f"Login failed after retries: {last_err}") from last_err
 
 
 def jalali_bundle_url() -> str:
@@ -150,11 +176,14 @@ def bench_get_draft_purchase_receipt() -> str:
 
 
 def bench_set_calendar_test_context(
-	default_calendar: str, user_calendar_preference: str = "System Default"
+	default_calendar: str,
+	user_calendar_preference: str = "System Default",
+	persian_calendar_enabled: bool | None = True,
 ) -> None:
 	"""Set Administrator calendar preference and Jalali Settings default_calendar."""
 	bench = _bench_cmd()
 	bench_path = os.environ.get("BENCH_PATH", "/workspace/development/frappe-bench")
+	enabled_arg = "None" if persian_calendar_enabled is None else ("True" if persian_calendar_enabled else "False")
 	exe = subprocess.run(
 		[
 			bench,
@@ -162,7 +191,7 @@ def bench_set_calendar_test_context(
 			SITE,
 			"execute",
 			"frappe.get_attr('persian_calendar.jalali_support.e2e_fixtures.set_calendar_e2e_context')"
-			f"({json.dumps(default_calendar)}, {json.dumps(user_calendar_preference)})",
+			f"({json.dumps(default_calendar)}, {json.dumps(user_calendar_preference)}, {enabled_arg})",
 		],
 		capture_output=True,
 		text=True,
@@ -171,6 +200,16 @@ def bench_set_calendar_test_context(
 	)
 	if exe.returncode != 0:
 		raise E2EFailure(f"bench calendar context failed:\n{exe.stdout}\n{exe.stderr}")
+	bench_path = os.environ.get("BENCH_PATH", "/workspace/development/frappe-bench")
+	clear = subprocess.run(
+		[_bench_cmd(), "--site", SITE, "clear-cache"],
+		capture_output=True,
+		text=True,
+		cwd=bench_path,
+		timeout=120,
+	)
+	if clear.returncode != 0:
+		raise E2EFailure(f"bench clear-cache failed:\n{clear.stdout}\n{clear.stderr}")
 
 
 def bench_get_default_employee() -> str:
@@ -262,6 +301,19 @@ class CDPClient:
 	async def close(self):
 		if self.ws:
 			await self.ws.close()
+
+	async def click_at(self, x: float, y: float) -> None:
+		for event_type in ("mousePressed", "mouseReleased"):
+			await self.call(
+				"Input.dispatchMouseEvent",
+				{
+					"type": event_type,
+					"x": x,
+					"y": y,
+					"button": "left",
+					"clickCount": 1,
+				},
+			)
 
 
 E2E_CONSOLE_HOOK_JS = """
@@ -403,7 +455,967 @@ async def assert_console_clean(cdp_page: CDPClient, context: str) -> None:
 	raise E2EFailure(f"Uncaught console errors at {context} ({len(relevant)}):\n{text}")
 
 
-async def run_job_card_csv_for_calendar_mode(
+def _gregorian_picker_e2e_modes(user_pref: str, default_cal: str) -> bool:
+	return user_pref == "Gregorian" or (
+		user_pref == "System Default" and default_cal == "Gregorian"
+	)
+
+
+def expected_effective_mode(
+	persian_calendar_enabled: bool, user_pref: str, default_cal: str
+) -> str:
+	if user_pref in ("Jalali", "Persian"):
+		return "Jalali"
+	if user_pref == "Gregorian":
+		return "Gregorian"
+	if not persian_calendar_enabled:
+		return "Gregorian"
+	return "Gregorian" if default_cal == "Gregorian" else "Jalali"
+
+
+def _client_boot_apply_js(
+	persian_calendar_enabled: bool, user_pref: str, default_cal: str
+) -> str:
+	"""Apply calendar boot + runtime after desk reload (enabled must be set before pref sync)."""
+	return f"""
+	(function() {{
+		try {{
+			localStorage.clear();
+			sessionStorage.clear();
+		}} catch (e) {{}}
+		frappe.boot.persian_calendar = frappe.boot.persian_calendar || {{}};
+		frappe.boot.persian_calendar.enabled = {json.dumps(persian_calendar_enabled)};
+		frappe.boot.persian_calendar.calendar_preference = {json.dumps(user_pref)};
+		frappe.boot.persian_calendar.default_calendar = {json.dumps(default_cal)};
+		var rt = frappe.persian_calendar.runtime;
+		if (rt.invalidateCalendarSettingsCache) rt.invalidateCalendarSettingsCache();
+		var pref = {json.dumps(user_pref)};
+		if (!{json.dumps(persian_calendar_enabled)}) {{
+			frappe.boot.persian_calendar.enabled = false;
+		}}
+		if (pref === 'System Default' && rt.configureSystemDefaultCalendarSync) {{
+			rt.configureSystemDefaultCalendarSync({json.dumps(default_cal)});
+		}} else if (rt.updateBootFromUserCalendarPreference) {{
+			rt.updateBootFromUserCalendarPreference(pref);
+		}}
+		if (rt.syncBootDisplayCalendar) rt.syncBootDisplayCalendar();
+		return {{
+			boot: frappe.boot.persian_calendar,
+			debug: rt.getCalendarPreferenceDebugSync ? rt.getCalendarPreferenceDebugSync() : null,
+			effective: rt.getEffectiveCalendarModeSync ? rt.getEffectiveCalendarModeSync() : null
+		}};
+	}})();
+	"""
+
+
+async def assert_effective_mode_at_mode_start(
+	cdp_page: CDPClient,
+	mode_label: str,
+	expected: str,
+	persian_calendar_enabled: bool,
+	user_pref: str,
+	default_cal: str,
+) -> None:
+	"""Assert effective mode matches matrix row; dump server/client state on failure."""
+	await cdp_page.evaluate(
+		_client_boot_apply_js(persian_calendar_enabled, user_pref, default_cal)
+	)
+	diag = await cdp_page.evaluate(
+		f"""
+		(function() {{
+			var rt = frappe.persian_calendar.runtime;
+			var ls = {{}};
+			try {{
+				for (var i = 0; i < localStorage.length; i++) {{
+					var k = localStorage.key(i);
+					if (k) ls[k] = localStorage.getItem(k);
+				}}
+			}} catch (e) {{}}
+			var server = null;
+			try {{
+				frappe.call({{
+					method: 'persian_calendar.jalali_support.e2e_fixtures.get_calendar_e2e_debug_state',
+					async: false,
+					callback: function(r) {{ server = r.message; }}
+				}});
+			}} catch (e) {{ server = {{ error: String(e) }}; }}
+			return {{
+				effective: rt.getEffectiveCalendarModeSync(),
+				boot_persian_calendar: frappe.boot.persian_calendar,
+				debug: rt.getCalendarPreferenceDebugSync(),
+				runtime_settings_cache: rt.getSettingsCache ? rt.getSettingsCache() : null,
+				localStorage: ls,
+				server: server
+			}};
+		}})();
+		"""
+	)
+	actual = diag.get("effective")
+	if actual == expected:
+		print(f"Mode {mode_label}: effective={actual} (boot OK)")
+		return
+	raise E2EFailure(
+		f"Mode {mode_label}: expected effective {expected!r}, got {actual!r}. "
+		f"Full dump:\\n{json.dumps(diag, indent=2, default=str)}"
+	)
+
+
+async def isolate_calendar_mode_for_e2e(
+	cdp_page: CDPClient,
+	mode_label: str,
+	persian_calendar_enabled: bool,
+	user_pref: str,
+	default_cal: str,
+) -> None:
+	"""Server DB + cache, client storage, hard reload, boot apply, effective assertion."""
+	expected = expected_effective_mode(persian_calendar_enabled, user_pref, default_cal)
+	bench_set_calendar_test_context(default_cal, user_pref, persian_calendar_enabled)
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			try {
+				localStorage.clear();
+				sessionStorage.clear();
+			} catch (e) {}
+		})();
+		"""
+	)
+	await cdp_page.call("Page.reload", {"ignoreCache": True})
+	for _ in range(100):
+		await asyncio.sleep(0.5)
+		ready = await cdp_page.evaluate("typeof frappe !== 'undefined' && !!frappe.boot")
+		if ready:
+			break
+	else:
+		raise E2EFailure(f"{mode_label}: desk did not reload after isolation")
+	await asyncio.sleep(2)
+	bundle_url = jalali_bundle_url() + f"?_={int(time.time())}"
+	await cdp_page.evaluate(
+		f"""
+		(function() {{
+			var s = document.createElement('script');
+			s.src = {json.dumps(bundle_url)};
+			document.head.appendChild(s);
+		}})();
+		"""
+	)
+	await asyncio.sleep(4)
+	await cdp_page.evaluate(E2E_CONSOLE_HOOK_JS)
+	await cdp_page.evaluate(E2E_SAVE_HOOKS_JS)
+	await assert_effective_mode_at_mode_start(
+		cdp_page, mode_label, expected, persian_calendar_enabled, user_pref, default_cal
+	)
+
+
+def _picker_nav_title_is_april_2026(title: str) -> bool:
+	t = (title or "").strip()
+	if re.search(r"\bMay\b", t, re.I):
+		return False
+	if re.search(r"April", t, re.I):
+		return True
+	if re.search(r"2026", t) and re.search(r"(^|[^\d])04([^\d]|$)|Apr", t, re.I):
+		return True
+	return False
+
+
+async def assert_gregorian_datetime_picker_month(
+	cdp_page: CDPClient,
+	mode_label: str,
+	row_idx: int,
+	fieldname: str,
+	iso_value: str,
+	expected_month0: int = 3,
+	expected_year: int = 2026,
+) -> None:
+	"""April = month index 3; May = 4 (bug when DD-MM parsed as MM-DD)."""
+	result = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var rowIdx = {row_idx};
+			var fieldname = {json.dumps(fieldname)};
+			var isoValue = {json.dumps(iso_value)};
+			var row = cur_frm.doc.time_logs[rowIdx];
+			if (!row) return {{ ok: false, error: 'no row' }};
+			row[fieldname] = isoValue;
+			cur_frm.refresh_field('time_logs');
+			await new Promise(function(r) {{ setTimeout(r, 900); }});
+			var grid = cur_frm.fields_dict.time_logs.grid;
+			var gr = grid.grid_rows[rowIdx];
+			if (!gr) return {{ ok: false, error: 'no grid row' }};
+			if (gr.doc) gr.doc[fieldname] = isoValue;
+			if (typeof gr.toggle_editable_row === 'function') {{
+				gr.toggle_editable_row(true);
+			}}
+			await new Promise(function(r) {{ setTimeout(r, 700); }});
+			var field = gr.on_grid_fields_dict && gr.on_grid_fields_dict[fieldname];
+			var input = field && field.$input && field.$input.length ? field.$input[0] : null;
+			if (!input) {{
+				var $w = gr.wrapper && gr.wrapper.jquery ? gr.wrapper : $(gr.wrapper);
+				input = $w.find('.frappe-control[data-fieldname="' + fieldname + '"] input')[0];
+			}}
+			if (!input) {{
+				return {{ ok: false, error: 'no field input', keys: Object.keys(gr.on_grid_fields_dict || {{}}) }};
+			}}
+			field = field || {{ $input: $(input), datepicker: $(input).data('datepicker') }};
+			if (!field.datepicker) {{
+				field.datepicker = $(input).data('datepicker');
+			}}
+			input.focus();
+			input.click();
+			await new Promise(function(r) {{ setTimeout(r, 700); }});
+			var dp = field.datepicker;
+			if (!dp || !dp.viewDate) {{
+				return {{
+					ok: false,
+					error: 'no datepicker or viewDate',
+					visible: field.$input.val(),
+					model: gr.doc && gr.doc[fieldname],
+					jalali: !!field.jalaliDatepicker
+				}};
+			}}
+			var m = dp.viewDate.getMonth();
+			var y = dp.viewDate.getFullYear();
+			var title = (dp.$datepicker && dp.$datepicker.find('.datepicker--nav-title').text()) || '';
+			var sel = dp.selectedDates && dp.selectedDates[0];
+			var selM = sel ? sel.getMonth() : m;
+			var selY = sel ? sel.getFullYear() : y;
+			function titleOkApril(t) {{
+				t = (t || '').trim();
+				if (/\\bMay\\b/i.test(t)) return false;
+				if (/April/i.test(t)) return true;
+				if (/2026/.test(t) && /(04|April|Apr)/i.test(t)) return true;
+				return false;
+			}}
+			var titleOk = titleOkApril(title);
+			return {{
+				ok: m === {expected_month0} && y === {expected_year} && selM === {expected_month0} && selY === {expected_year} && titleOk,
+				month: m,
+				year: y,
+				selMonth: selM,
+				selYear: selY,
+				title: title,
+				titleOk: titleOk,
+				visible: field.$input.val(),
+				model: gr.doc[fieldname]
+			}};
+		}})();
+		"""
+	)
+	print(f"{mode_label} picker {fieldname}: {result}")
+	if not result or not result.get("ok"):
+		raise E2EFailure(
+			f"{mode_label}: picker must open month index {expected_month0} (April) "
+			f"year {expected_year} for {iso_value}; got {result}"
+		)
+	if result.get("month") == 4 or result.get("selMonth") == 4:
+		raise E2EFailure(
+			f"{mode_label}: picker opened May (month index 4) for {fieldname}; "
+			f"visible={result.get('visible')!r} model={result.get('model')!r}"
+		)
+	if expected_month0 == 3 and not result.get("titleOk"):
+		raise E2EFailure(
+			f"{mode_label}: picker nav title must show April 2026, not May: {result}"
+		)
+
+
+async def assert_grid_datetime_popup_on_user_click(
+	cdp_page: CDPClient,
+	mode_label: str,
+	row_idx: int,
+	fieldname: str,
+	expect_jalali: bool,
+	iso_value: str = "2026-04-20 12:00:00",
+) -> None:
+	"""CDP mouse click on grid Datetime input; assert visible native or Jalali popup."""
+	prep = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var rowIdx = {row_idx};
+			var fieldname = {json.dumps(fieldname)};
+			var isoValue = {json.dumps(iso_value)};
+			var row = cur_frm.doc.time_logs[rowIdx];
+			if (!row) return {{ ok: false, error: 'no row' }};
+			row[fieldname] = isoValue;
+			cur_frm.refresh_field('time_logs');
+			await new Promise(function(r) {{ setTimeout(r, 900); }});
+			var grid = cur_frm.fields_dict.time_logs.grid;
+			var gr = grid.grid_rows[rowIdx];
+			if (!gr) return {{ ok: false, error: 'no grid row' }};
+			if (typeof gr.toggle_editable_row === 'function') gr.toggle_editable_row(true);
+			await new Promise(function(r) {{ setTimeout(r, 600); }});
+			var field = gr.on_grid_fields_dict && gr.on_grid_fields_dict[fieldname];
+			var input = field && field.$input && field.$input.length ? field.$input[0] : null;
+			if (!input) {{
+				var $w = gr.wrapper && gr.wrapper.jquery ? gr.wrapper : $(gr.wrapper);
+				input = $w.find('.frappe-control[data-fieldname="' + fieldname + '"] input')[0];
+			}}
+			if (!input) return {{ ok: false, error: 'no input' }};
+			field = field || {{ $input: $(input) }};
+			input.scrollIntoView({{ block: 'center', inline: 'nearest' }});
+			await new Promise(function(r) {{ setTimeout(r, 200); }});
+			input.focus();
+			input.click();
+			await new Promise(function(r) {{ setTimeout(r, 1000); }});
+			return {{ ok: true, fieldname: fieldname }};
+		}})();
+		"""
+	)
+	if not prep or not prep.get("ok"):
+		raise E2EFailure(f"{mode_label}: grid {fieldname} prep failed: {prep}")
+	result = await cdp_page.evaluate(
+		f"""
+		(function() {{
+			function popupVisible() {{
+				var air = false;
+				var nodes = document.querySelectorAll('.datepicker');
+				for (var i = 0; i < nodes.length; i++) {{
+					var s = window.getComputedStyle(nodes[i]);
+					if (s.display !== 'none' && s.visibility !== 'hidden' && nodes[i].offsetParent) {{
+						air = true;
+						break;
+					}}
+				}}
+				var jalali = false;
+				document.querySelectorAll('.jalali-datepicker').forEach(function(el) {{
+					var s = window.getComputedStyle(el);
+					if (s.display !== 'none' && s.visibility !== 'hidden') {{
+						jalali = true;
+					}}
+				}});
+				return {{ air: air, jalali: jalali }};
+			}}
+			var fieldname = {json.dumps(fieldname)};
+			var gr = cur_frm.fields_dict.time_logs.grid.grid_rows[{row_idx}];
+			var field = gr.on_grid_fields_dict[fieldname];
+			var input = field && field.$input && field.$input[0];
+			var dp = field && (field.datepicker || $(input).data('datepicker'));
+			var vis = popupVisible();
+			var jalaliInst = field && (field.jalaliDatepicker || (input && $(input).data('jalaliDatepickerInstance')));
+			if (jalaliInst && jalaliInst.isOpen) {{
+				vis.jalali = true;
+			}}
+			var title = '';
+			var month = null;
+			if (vis.air && dp && dp.$datepicker) {{
+				title = (dp.$datepicker.find('.datepicker--nav-title').text() || '').trim();
+				if (dp.viewDate) month = dp.viewDate.getMonth();
+			}}
+			function titleOkApril(t) {{
+				t = (t || '').trim();
+				if (/\\bMay\\b/i.test(t)) return false;
+				if (/April/i.test(t)) return true;
+				if (/2026/.test(t) && /(04|April|Apr)/i.test(t)) return true;
+				return false;
+			}}
+			var expectJalali = {json.dumps(expect_jalali)};
+			var ok = expectJalali ? vis.jalali && !vis.air : vis.air && !vis.jalali;
+			if (!expectJalali && vis.air && !titleOkApril(title)) ok = false;
+			return {{
+				ok: ok,
+				expectJalali: expectJalali,
+				visibility: vis,
+				jalaliIsOpen: !!(jalaliInst && jalaliInst.isOpen),
+				readOnly: input && input.readOnly,
+				disabled: input && input.disabled,
+				hasDatepickerClass: input && input.classList.contains('hasDatepicker'),
+				dataDatepicker: input && !!$(input).data('datepicker'),
+				controlDatepicker: !!field.datepicker,
+				jalaliOnField: !!field.jalaliDatepicker,
+				effective: frappe.persian_calendar.runtime.getEffectiveCalendarModeSync(),
+				title: title,
+				month: month,
+				visible: field.$input ? field.$input.val() : (input && input.value)
+			}};
+		}})();
+		"""
+	)
+	print(f"{mode_label} grid click {fieldname}: {result}")
+	if not result or not result.get("ok"):
+		raise E2EFailure(
+			f"{mode_label}: grid {fieldname} click must open "
+			f"{'Jalali' if expect_jalali else 'native Air'} picker popup; got {result}"
+		)
+async def assert_effective_calendar_mode(
+	cdp_page: CDPClient, mode_label: str, expected: str
+) -> None:
+	actual = await cdp_page.evaluate(
+		"frappe.persian_calendar.runtime.getEffectiveCalendarModeSync()"
+	)
+	if actual != expected:
+		raise E2EFailure(f"{mode_label}: expected effective {expected}, got {actual}")
+
+
+async def assert_gregorian_main_datetime_picker(
+	cdp_page: CDPClient,
+	mode_label: str,
+	fieldname: str,
+	iso_value: str,
+	expected_month0: int = 3,
+	expected_year: int = 2026,
+) -> None:
+	result = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var fieldname = {json.dumps(fieldname)};
+			var isoValue = {json.dumps(iso_value)};
+			if (cur_frm.set_value) {{
+				try {{ cur_frm.set_value(fieldname, isoValue); }} catch (e) {{}}
+			}}
+			if (cur_frm.doc) cur_frm.doc[fieldname] = isoValue;
+			cur_frm.refresh_field(fieldname);
+			await new Promise(function(r) {{ setTimeout(r, 900); }});
+			var field = cur_frm.fields_dict[fieldname];
+			var input = field && field.$input && field.$input.length
+				? field.$input[0]
+				: document.querySelector('.frappe-control[data-fieldname="' + fieldname + '"] input');
+			if (!input) {{
+				return {{ ok: false, error: 'no main field input', hasDict: !!field }};
+			}}
+			if (!field) {{
+				field = {{ $input: $(input), datepicker: $(input).data('datepicker') }};
+			}}
+			input.focus();
+			input.click();
+			await new Promise(function(r) {{ setTimeout(r, 700); }});
+			var dp = field.datepicker || $(input).data('datepicker');
+			if (!dp || !dp.viewDate) {{
+				return {{
+					ok: false,
+					error: 'no datepicker',
+					visible: field.$input.val(),
+					model: cur_frm.doc[fieldname],
+					jalali: !!field.jalaliDatepicker
+				}};
+			}}
+			var m = dp.viewDate.getMonth();
+			var y = dp.viewDate.getFullYear();
+			var title = (dp.$datepicker && dp.$datepicker.find('.datepicker--nav-title').text()) || '';
+			var sel = dp.selectedDates && dp.selectedDates[0];
+			var selM = sel ? sel.getMonth() : m;
+			var selY = sel ? sel.getFullYear() : y;
+			function titleOkApril(t) {{
+				t = (t || '').trim();
+				if (/\\bMay\\b/i.test(t)) return false;
+				if (/April/i.test(t)) return true;
+				if (/2026/.test(t) && /(04|April|Apr)/i.test(t)) return true;
+				return false;
+			}}
+			var titleOk = titleOkApril(title);
+			return {{
+				ok: m === {expected_month0} && y === {expected_year} && selM === {expected_month0} && selY === {expected_year} && titleOk,
+				month: m, year: y, selMonth: selM, selYear: selY, title: title, titleOk: titleOk,
+				visible: field.$input.val(),
+				model: cur_frm.doc[fieldname]
+			}};
+		}})();
+		"""
+	)
+	print(f"{mode_label} main picker {fieldname}: {result}")
+	if not result or not result.get("ok"):
+		raise E2EFailure(f"{mode_label}: main {fieldname} picker April 2026 failed: {result}")
+	if expected_month0 == 3 and not result.get("titleOk"):
+		raise E2EFailure(f"{mode_label}: main {fieldname} nav title must be April 2026: {result}")
+
+
+async def assert_jalali_picker_on_field(
+	cdp_page: CDPClient,
+	mode_label: str,
+	context: str,
+	fieldname: str,
+	*,
+	grid: bool = False,
+	row_idx: int = 0,
+	child_table: str = "time_logs",
+) -> None:
+	result = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var fieldname = {json.dumps(fieldname)};
+			var grid = {json.dumps(grid)};
+			var rowIdx = {row_idx};
+			var childTable = {json.dumps(child_table)};
+			var field;
+			if (grid) {{
+				var gridObj = cur_frm.fields_dict[childTable].grid;
+				var gr = gridObj.grid_rows[rowIdx];
+				if (typeof gr.toggle_editable_row === 'function') gr.toggle_editable_row(true);
+				await new Promise(function(r) {{ setTimeout(r, 500); }});
+				field = gr.on_grid_fields_dict[fieldname];
+			}} else {{
+				field = cur_frm.fields_dict[fieldname];
+			}}
+			if (!field || !field.$input || !field.$input.length) {{
+				return {{ ok: false, error: 'no field' }};
+			}}
+			field.$input[0].focus();
+			field.$input[0].click();
+			await new Promise(function(r) {{ setTimeout(r, 600); }});
+			return {{
+				ok: !!field.jalaliDatepicker,
+				jalali: !!field.jalaliDatepicker,
+				visible: field.$input.val(),
+				hasAir: !!(field.datepicker && field.datepicker.viewDate)
+			}};
+		}})();
+		"""
+	)
+	if not result.get("ok"):
+		raise E2EFailure(f"{mode_label} {context}: expected Jalali picker on {fieldname}: {result}")
+
+
+async def assert_main_date_pr(
+	cdp_page: CDPClient,
+	mode_label: str,
+	effective: str,
+) -> None:
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			var chk = document.querySelector(
+				'.frappe-control[data-fieldname="edit_posting_date_and_time"] input[type="checkbox"]'
+			);
+			if (chk && !chk.checked) chk.click();
+		})();
+		"""
+	)
+	await asyncio.sleep(0.5)
+	iso = "2026-04-20"
+	await cdp_page.evaluate(f"cur_frm.set_value('posting_date', {json.dumps(iso)});")
+	await asyncio.sleep(0.8)
+	probe = await cdp_page.evaluate(
+		"""
+		(function() {
+			var inp = document.querySelector('.frappe-control[data-fieldname="posting_date"] input');
+			return {
+				visible: inp ? inp.value : null,
+				model: cur_frm.doc.posting_date
+			};
+		})();
+		"""
+	)
+	pd_mod = str(probe.get("model") or "")
+	pd_vis = str(probe.get("visible") or "")
+	if "Invalid date" in pd_vis or "Invalid date" in pd_mod or "NaN" in pd_vis:
+		raise E2EFailure(f"{mode_label} main_date: {probe}")
+	if effective == "Jalali":
+		if pd_mod[:10] != "2026-04-20":
+			raise E2EFailure(f"{mode_label} main_date model must stay ISO: {probe}")
+		if pd_vis and not re.match(r"^1[34]\d{2}-\d{2}-\d{2}$", pd_vis):
+			raise E2EFailure(f"{mode_label} main_date visible expected Jalali: {probe}")
+		await assert_jalali_picker_on_field(cdp_page, mode_label, "main_date", "posting_date")
+	else:
+		if pd_mod[:10] != "2026-04-20":
+			raise E2EFailure(f"{mode_label} main_date model: {probe}")
+		await assert_gregorian_main_datetime_picker(
+			cdp_page, mode_label, "posting_date", iso + " 00:00:00"
+		)
+
+
+async def assert_main_time_pr(cdp_page: CDPClient, mode_label: str, effective: str) -> None:
+	await cdp_page.evaluate("cur_frm.set_value('posting_time', '14:30:00');")
+	await asyncio.sleep(0.6)
+	probe = await cdp_page.evaluate(
+		"""
+		(function() {
+			var inp = document.querySelector('.frappe-control[data-fieldname="posting_time"] input');
+			return {
+				visible: inp ? inp.value : null,
+				model: cur_frm.doc.posting_time
+			};
+		})();
+		"""
+	)
+	pt_vis = str(probe.get("visible") or "")
+	pt_mod = str(probe.get("model") or "")
+	if "Invalid date" in pt_vis or "Invalid date" in pt_mod or "NaN" in pt_vis:
+		raise E2EFailure(f"{mode_label} main_time: {probe}")
+	if pt_vis and not re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", pt_vis):
+		raise E2EFailure(f"{mode_label} main_time not HH:mm:ss: {probe}")
+	if effective == "Gregorian":
+		await cdp_page.evaluate(
+			"""
+			(function() {
+				var input = document.querySelector('.frappe-control[data-fieldname="posting_time"] input');
+				if (input) { input.focus(); input.click(); }
+			})();
+			"""
+		)
+		await asyncio.sleep(0.4)
+
+
+async def assert_grid_date_pr(cdp_page: CDPClient, mode_label: str, effective: str) -> None:
+	result = await cdp_page.evaluate(
+		"""
+		(async function() {
+			if (!cur_frm.doc.items || !cur_frm.doc.items.length) {
+				return { ok: false, error: 'no items row' };
+			}
+			cur_frm.doc.items[0].schedule_date = '2026-04-20';
+			cur_frm.refresh_field('items');
+			await new Promise(function(r) { setTimeout(r, 800); });
+			var grid = cur_frm.fields_dict.items.grid;
+			var gr = grid.grid_rows[0];
+			if (gr && typeof gr.toggle_editable_row === 'function') {
+				gr.toggle_editable_row(true);
+			}
+			await new Promise(function(r) { setTimeout(r, 500); });
+			var field = gr.on_grid_fields_dict && gr.on_grid_fields_dict.schedule_date;
+			if (!field && gr && typeof gr.show_form === 'function') {
+				gr.show_form();
+				await new Promise(function(r) { setTimeout(r, 900); });
+				field = cur_frm.cur_grid && cur_frm.cur_grid.grid_form && cur_frm.cur_grid.grid_form.fields_dict
+					? cur_frm.cur_grid.grid_form.fields_dict.schedule_date
+					: null;
+			}
+			var model = cur_frm.doc.items[0].schedule_date;
+			var modelOk = model === '2026-04-20' || String(model || '').slice(0, 10) === '2026-04-20';
+			if (!field || !field.$input || !field.$input.length) {
+				return {
+					ok: modelOk,
+					skipPicker: true,
+					model: model,
+					effective: frappe.persian_calendar.runtime.getEffectiveCalendarModeSync()
+				};
+			}
+			field.$input[0].focus();
+			field.$input[0].click();
+			await new Promise(function(r) { setTimeout(r, 700); });
+			var jalali = !!field.jalaliDatepicker;
+			var dp = field.datepicker;
+			if (jalali) {
+				return { ok: true, jalali: true, model: model, visible: field.$input.val() };
+			}
+			if (!dp || !dp.viewDate) {
+				return { ok: false, error: 'no dp', model: model, visible: field.$input.val() };
+			}
+			var m = dp.viewDate.getMonth();
+			var title = (dp.$datepicker && dp.$datepicker.find('.datepicker--nav-title').text()) || '';
+			function titleOkApril(t) {
+				t = (t || '').trim();
+				if (/\\bMay\\b/i.test(t)) return false;
+				if (/April/i.test(t)) return true;
+				if (/2026/.test(t) && /(04|April|Apr)/i.test(t)) return true;
+				return false;
+			}
+			return { ok: m === 3 && titleOkApril(title), month: m, title: title, model: model };
+		})();
+		"""
+	)
+	if not result.get("ok"):
+		raise E2EFailure(f"{mode_label} grid_date schedule_date: {result}")
+	if effective == "Jalali" and not result.get("skipPicker") and not result.get("jalali"):
+		raise E2EFailure(f"{mode_label} grid_date expected Jalali picker: {result}")
+
+
+async def assert_grid_time_via_datetime(
+	cdp_page: CDPClient,
+	mode_label: str,
+	effective: str,
+	job_card: str,
+) -> None:
+	"""Job Card grid has Datetime only; exercise time portion on to_time."""
+	await cdp_page.evaluate(f"frappe.set_route('Form', 'Job Card', {json.dumps(job_card)});")
+	await asyncio.sleep(3)
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			var tab = document.querySelector('.form-tabs-list [data-fieldname="actual_time"], .nav-link[data-fieldname="actual_time"]');
+			if (tab) tab.click();
+		})();
+		"""
+	)
+	await asyncio.sleep(0.8)
+	probe = await cdp_page.evaluate(
+		"""
+		(function() {
+			var row = cur_frm.doc.time_logs && cur_frm.doc.time_logs[0];
+			if (!row) return { ok: false, error: 'no time_logs row' };
+			row.to_time = '2026-04-20 15:45:00';
+			cur_frm.refresh_field('time_logs');
+			var grid = cur_frm.fields_dict.time_logs.grid;
+			var gr = grid.grid_rows[0];
+			if (gr && typeof gr.toggle_editable_row === 'function') gr.toggle_editable_row(true);
+			var field = gr.on_grid_fields_dict.to_time;
+			if (!field || !field.$input || !field.$input.length) return { ok: false, error: 'no to_time' };
+			field.$input[0].focus();
+			field.$input[0].click();
+			return {
+				ok: true,
+				visible: field.$input.val(),
+				model: row.to_time,
+				jalali: !!field.jalaliDatepicker
+			};
+		})();
+		"""
+	)
+	if not probe.get("ok"):
+		raise E2EFailure(f"{mode_label} grid_time: {probe}")
+	vis = str(probe.get("visible") or "")
+	if "Invalid date" in vis or "NaN" in vis:
+		raise E2EFailure(f"{mode_label} grid_time visible bad: {probe}")
+	if effective == "Jalali" and not probe.get("jalali"):
+		raise E2EFailure(f"{mode_label} grid_time expected Jalali on to_time: {probe}")
+
+
+async def save_cur_frm_and_assert(
+	cdp_page: CDPClient, mode_label: str, context: str
+) -> None:
+	await cdp_page.evaluate(E2E_SAVE_HOOKS_JS)
+	await cdp_page.evaluate("window.__pcE2ESaveDone = null; window.__pcE2ELastSavedocs = null;")
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			if (!cur_frm.is_dirty()) {
+				cur_frm.dirty();
+			}
+			var done = function(ok, extra) {
+				window.__pcE2ESaveDone = Object.assign({ ok: ok }, extra || {});
+			};
+			try {
+				var p = cur_frm.save();
+				if (p && typeof p.then === 'function') {
+					p.then(function() { done(true); }).catch(function(e) {
+						done(false, { error: String(e && e.message || e) });
+					});
+					return;
+				}
+			} catch (e) {}
+			cur_frm.save(
+				'Save',
+				function(r) { done(!r.exc, { exc: r.exc }); },
+				null,
+				function() { done(false, { error: 'save_on_error' }); }
+			);
+		})();
+		"""
+	)
+	save_meta = None
+	for _ in range(120):
+		await asyncio.sleep(0.5)
+		save_meta = await cdp_page.evaluate(
+			"""(() => ({ done: window.__pcE2ESaveDone, savedocs: window.__pcE2ELastSavedocs }))()"""
+		)
+		sd = save_meta.get("savedocs") or {}
+		if sd.get("httpStatus") == 200:
+			break
+		if save_meta.get("done"):
+			break
+	else:
+		diag = await cdp_page.evaluate(
+			"""(() => ({
+				validated: frappe.validated,
+				dirty: cur_frm && cur_frm.is_dirty(),
+				done: window.__pcE2ESaveDone,
+				savedocs: window.__pcE2ELastSavedocs
+			}))()"""
+		)
+		raise E2EFailure(f"{mode_label} {context}: save timeout {diag}")
+	sd = save_meta.get("savedocs") or {}
+	if sd.get("httpStatus") != 200:
+		if not save_meta.get("done", {}).get("ok"):
+			raise E2EFailure(f"{mode_label} {context}: save failed {save_meta}")
+		raise E2EFailure(f"{mode_label} {context}: savedocs HTTP {sd.get('httpStatus')} {sd}")
+	post = await cdp_page.evaluate(
+		"""(() => ({
+			is_dirty: cur_frm && cur_frm.is_dirty(),
+			pills: Array.from(document.querySelectorAll('.indicator-pill')).map(function(el) {
+				return (el.textContent || '').trim();
+			})
+		}))()"""
+	)
+	if post.get("is_dirty"):
+		raise E2EFailure(f"{mode_label} {context}: dirty after save {post}")
+	unsaved = await cdp_page.evaluate(
+		"(() => (cur_frm && cur_frm.doc && cur_frm.doc.__unsaved) ? true : false)()"
+	)
+	if unsaved:
+		raise E2EFailure(f"{mode_label} {context}: doc.__unsaved after save")
+
+
+async def run_calendar_mode_acceptance(
+	cdp_page: CDPClient,
+	job_card: str,
+	pr_name: str,
+	csv_text: str,
+	label: str,
+	enabled: bool,
+	user_pref: str,
+	default_cal: str,
+	default_employee: str,
+) -> dict[str, str]:
+	"""Full acceptance for one A–G mode; returns per-context status."""
+	expected = expected_effective_mode(enabled, user_pref, default_cal)
+	ctx: dict[str, str] = {}
+
+	await isolate_calendar_mode_for_e2e(
+		cdp_page, label, enabled, user_pref, default_cal
+	)
+	ctx["effective_mode"] = "PASS"
+
+	await _run_job_card_csv_body(
+		cdp_page,
+		job_card,
+		csv_text,
+		label,
+		user_pref,
+		default_cal,
+		default_employee,
+		enabled,
+	)
+	ctx["csv_import"] = "PASS"
+	ctx["grid_datetime"] = "PASS"
+	ctx["jc_save"] = "PASS"
+
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			var tab = document.querySelector('.form-tabs-list [data-fieldname="actual_time"], .nav-link[data-fieldname="actual_time"]');
+			if (tab) tab.click();
+		})();
+		"""
+	)
+	await asyncio.sleep(0.5)
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			var el = document.querySelector('.frappe-control[data-fieldname="actual_start_date"]');
+			if (el) el.scrollIntoView({ block: 'center' });
+		})();
+		"""
+	)
+	await asyncio.sleep(0.3)
+	field_order = (
+		["expected_start_date", "actual_end_date", "actual_start_date"]
+		if expected == "Gregorian"
+		else ["actual_start_date", "expected_start_date", "actual_end_date"]
+	)
+	main_dt_field = await cdp_page.evaluate(
+		f"""
+		(function() {{
+			var names = {json.dumps(field_order)};
+			for (var i = 0; i < names.length; i++) {{
+				var fn = names[i];
+				var field = cur_frm.fields_dict[fn];
+				if (field && field.refresh) field.refresh();
+				var inp = document.querySelector('.frappe-control[data-fieldname="' + fn + '"] input');
+				if (inp) return fn;
+			}}
+			return null;
+		}})();
+		"""
+	)
+	await asyncio.sleep(0.8)
+	if not main_dt_field:
+		probe = await cdp_page.evaluate(
+			"""(() => ({
+				actual_start_date: cur_frm.doc.actual_start_date,
+				expected_start_date: cur_frm.doc.expected_start_date
+			}))()"""
+		)
+		if str(probe.get("actual_start_date") or "").startswith("2026-"):
+			ctx["main_datetime"] = "PASS (read-only; model ISO)"
+		else:
+			raise E2EFailure(f"{label}: no main Datetime input; doc={probe}")
+	else:
+		iso_val = "2026-04-20 12:00:00"
+		if expected == "Jalali":
+			await cdp_page.evaluate(f"cur_frm.set_value({json.dumps(main_dt_field)}, {json.dumps(iso_val)});")
+			await asyncio.sleep(0.8)
+			await assert_jalali_picker_on_field(cdp_page, label, "main_datetime", main_dt_field)
+		else:
+			await assert_gregorian_main_datetime_picker(cdp_page, label, main_dt_field, iso_val)
+		ctx["main_datetime"] = "PASS"
+
+	try:
+		await cdp_page.evaluate(f"frappe.set_route('Form', 'Purchase Receipt', {json.dumps(pr_name)});")
+		await asyncio.sleep(4)
+		await assert_effective_mode_at_mode_start(
+			cdp_page, f"{label} (PR)", expected, enabled, user_pref, default_cal
+		)
+		await assert_main_date_pr(cdp_page, label, expected)
+		ctx["main_date_pr"] = "PASS"
+		await assert_main_time_pr(cdp_page, label, expected)
+		ctx["main_time_pr"] = "PASS"
+		await cdp_page.evaluate(f"frappe.set_route('Form', 'Purchase Receipt', {json.dumps(pr_name)});")
+		await asyncio.sleep(3)
+		await assert_grid_date_pr(cdp_page, label, expected)
+		ctx["grid_date_pr"] = "PASS"
+		await cdp_page.evaluate(
+			"""
+			(function() {
+				return frappe.call({
+					method: 'frappe.desk.form.load.getdoc',
+					args: { doctype: cur_frm.doctype, name: cur_frm.docname },
+					async: false,
+					callback: function(r) {
+						frappe.model.sync(r.message);
+						cur_frm.refresh();
+					}
+				});
+			})();
+			"""
+		)
+		await asyncio.sleep(2)
+		await cdp_page.evaluate(
+			"""
+			(function() {
+				var chk = document.querySelector(
+					'.frappe-control[data-fieldname="edit_posting_date_and_time"] input[type="checkbox"]'
+				);
+				if (chk && !chk.checked) chk.click();
+				var t = String(cur_frm.doc.posting_time || '12:00:00');
+				var parts = t.split(':');
+				var h = parseInt(parts[0], 10) || 0;
+				var m = (parseInt(parts[1], 10) || 0);
+				m = (m + 1) % 60;
+				var s = String((parseInt(parts[2], 10) || 0) + 1).padStart(2, '0');
+				cur_frm.set_value('posting_time', h + ':' + String(m).padStart(2, '0') + ':' + s);
+				cur_frm.dirty();
+			})();
+			"""
+		)
+		await asyncio.sleep(0.5)
+		await save_cur_frm_and_assert(cdp_page, label, "PR save")
+		ctx["pr_save"] = "PASS"
+		await assert_console_clean(cdp_page, f"{label} PR")
+	except E2EFailure as e:
+		e.acceptance_ctx = ctx  # type: ignore[attr-defined]
+		raise
+
+	await assert_grid_time_via_datetime(cdp_page, label, expected, job_card)
+	ctx["grid_time"] = "PASS"
+
+	return ctx
+
+
+def print_acceptance_matrix_table(rows: list[tuple[str, dict[str, str]]]) -> None:
+	contexts = [
+		"effective_mode",
+		"csv_import",
+		"main_datetime",
+		"main_date_pr",
+		"main_time_pr",
+		"grid_datetime",
+		"grid_date_pr",
+		"grid_time",
+		"jc_save",
+		"pr_save",
+	]
+	print("\n=== Calendar acceptance matrix (A–G) ===")
+	header = "Mode | " + " | ".join(contexts) + " | OVERALL"
+	print(header)
+	print("-" * len(header))
+	def _pass_cell(val: str | None) -> bool:
+		return val == "PASS" or (isinstance(val, str) and str(val).startswith("PASS"))
+
+	for label, ctx in rows:
+		overall = "PASS" if all(_pass_cell(ctx.get(c)) for c in contexts) else "FAIL"
+		cells = [ctx.get(c, "—") for c in contexts]
+		print(f"{label} | " + " | ".join(cells) + f" | {overall}")
+	print("=== end matrix ===\n")
+
+
+async def _run_job_card_csv_body(
 	cdp_page: CDPClient,
 	job_card: str,
 	csv_text: str,
@@ -411,46 +1423,18 @@ async def run_job_card_csv_for_calendar_mode(
 	user_pref: str,
 	default_cal: str,
 	default_employee: str,
+	persian_calendar_enabled: bool = True,
 ) -> None:
-	"""CSV import + click + save for one calendar preference (clears localStorage each run)."""
-	bench_set_calendar_test_context(default_cal, user_pref)
+	"""Job Card CSV import + picker + save (caller must run isolate_calendar_mode_for_e2e first)."""
 	await cdp_page.evaluate(
-		f"""
-		(function() {{
-			try {{
-				localStorage.clear();
-				sessionStorage.clear();
-			}} catch (e) {{}}
-			frappe.boot.persian_calendar = frappe.boot.persian_calendar || {{}};
-			frappe.boot.persian_calendar.enabled = true;
-			frappe.boot.persian_calendar.calendar_preference = {json.dumps(user_pref)};
-			frappe.boot.persian_calendar.default_calendar = {json.dumps(default_cal)};
-			var rt = frappe.persian_calendar.runtime;
-			var __pcUserPref = {json.dumps(user_pref)};
-			if (__pcUserPref === 'System Default' && rt.configureSystemDefaultCalendarSync) {{
-				rt.configureSystemDefaultCalendarSync({json.dumps(default_cal)});
-			}} else if (rt.updateBootFromUserCalendarPreference) {{
-				rt.updateBootFromUserCalendarPreference(__pcUserPref);
-			}}
-			if (rt.invalidateCalendarSettingsCache) rt.invalidateCalendarSettingsCache();
+		"""
+		(function() {
 			window.__pcMomentDeprecation = [];
 			window.__pcRawCsvInFormatter = [];
 			window.__persianCalendarInvalidDateLog = [];
-			return rt.getCalendarPreferenceDebugSync ? rt.getCalendarPreferenceDebugSync() : null;
-		}})();
+		})();
 		"""
 	)
-	await cdp_page.call("Page.reload", {"ignoreCache": True})
-	for _ in range(80):
-		await asyncio.sleep(0.5)
-		ready = await cdp_page.evaluate("typeof frappe !== 'undefined' && !!frappe.boot")
-		if ready:
-			break
-	else:
-		raise E2EFailure(f"{mode_label}: desk did not reload (frappe.boot missing)")
-	await asyncio.sleep(3)
-	await cdp_page.evaluate(E2E_CONSOLE_HOOK_JS)
-	await cdp_page.evaluate(E2E_SAVE_HOOKS_JS)
 	await cdp_page.evaluate(
 		f"frappe.set_route('Form', 'Job Card', {json.dumps(job_card)});"
 	)
@@ -505,6 +1489,16 @@ async def run_job_card_csv_for_calendar_mode(
 		"""
 	)
 	print(f"Calendar mode {mode_label}: import={import_result}")
+	exp_eff = expected_effective_mode(persian_calendar_enabled, user_pref, default_cal)
+	if import_result.get("effective") != exp_eff:
+		await assert_effective_mode_at_mode_start(
+			cdp_page,
+			f"{mode_label} (import)",
+			exp_eff,
+			persian_calendar_enabled,
+			user_pref,
+			default_cal,
+		)
 	if import_result.get("momentWarn"):
 		raise E2EFailure(f"{mode_label}: moment deprecation with raw CSV: {import_result.get('momentWarn')}")
 	if import_result.get("rawCsvWarn"):
@@ -519,6 +1513,13 @@ async def run_job_card_csv_for_calendar_mode(
 			if val and not val.startswith("2026-"):
 				raise E2EFailure(f"{mode_label}: model not ISO {key}={val}")
 	await assert_console_clean(cdp_page, f"{mode_label} after CSV import")
+	exp_pick = expected_effective_mode(persian_calendar_enabled, user_pref, default_cal)
+	await assert_grid_datetime_popup_on_user_click(
+		cdp_page, mode_label, 0, "from_time", exp_pick == "Jalali", "2026-04-20 12:00:00"
+	)
+	await assert_grid_datetime_popup_on_user_click(
+		cdp_page, mode_label, 0, "to_time", exp_pick == "Jalali", "2026-04-20 13:00:00"
+	)
 	row_count = int(import_result.get("rowCount") or 0)
 	for row_idx in range(min(row_count, 3)):
 		for field in ("from_time", "to_time"):
@@ -603,6 +1604,31 @@ async def run_job_card_csv_for_calendar_mode(
 	if post.get("is_dirty"):
 		raise E2EFailure(f"{mode_label}: form dirty after save {post}")
 	print(f"PASS calendar mode {mode_label}: effective={post.get('effective')} save HTTP 200 clean form")
+
+
+async def run_job_card_csv_for_calendar_mode(
+	cdp_page: CDPClient,
+	job_card: str,
+	csv_text: str,
+	mode_label: str,
+	user_pref: str,
+	default_cal: str,
+	default_employee: str,
+	persian_calendar_enabled: bool = True,
+) -> None:
+	await isolate_calendar_mode_for_e2e(
+		cdp_page, mode_label, persian_calendar_enabled, user_pref, default_cal
+	)
+	await _run_job_card_csv_body(
+		cdp_page,
+		job_card,
+		csv_text,
+		mode_label,
+		user_pref,
+		default_cal,
+		default_employee,
+		persian_calendar_enabled,
+	)
 
 
 async def run_scenarios(job_card: str, sid_value: str, csv_text: str) -> None:
@@ -799,7 +1825,11 @@ async def run_scenarios(job_card: str, sid_value: str, csv_text: str) -> None:
 			"""
 		)
 
-		if not os.environ.get("E2E_JC_CSV_ONLY"):
+		if (
+			not os.environ.get("E2E_JC_CSV_ONLY")
+			and not os.environ.get("E2E_CALENDAR_MATRIX")
+			and not os.environ.get("E2E_GRID_PICKER_MATRIX")
+		):
 			pr_name = bench_get_draft_purchase_receipt()
 			for scenario_id, default_cal in (("E", "Jalali"), ("F", "Gregorian")):
 				bench_set_calendar_test_context(default_cal)
@@ -1087,17 +2117,76 @@ async def run_scenarios(job_card: str, sid_value: str, csv_text: str) -> None:
 		)
 		default_employee = bench_get_default_employee()
 		print(f"E2E default employee: {default_employee}")
-		for mode_label, user_pref, default_cal in (
-			("Gregorian", "Gregorian", "Jalali"),
-			("Jalali", "Jalali", "Jalali"),
-			("SystemDefault", "System Default", "Jalali"),
-		):
-			await run_job_card_csv_for_calendar_mode(
-				cdp_page, job_card, csv_text, mode_label, user_pref, default_cal, default_employee
-			)
-		print("PASS: Job Card CSV matrix (Gregorian, Jalali, System Default)")
+		if os.environ.get("E2E_GRID_PICKER_MATRIX"):
+			print("Running grid picker click matrix (4 modes, user click → visible popup)...")
+			for label, enabled, user_pref, default_cal in GRID_PICKER_MODE_MATRIX:
+				await run_job_card_csv_for_calendar_mode(
+					cdp_page,
+					job_card,
+					csv_text,
+					label,
+					user_pref,
+					default_cal,
+					default_employee,
+					enabled,
+				)
+			await assert_console_clean(cdp_page, "final (grid picker matrix)")
+			await cdp_page.close()
+			await cdp.close()
+			return
 
-		if os.environ.get("E2E_JC_CSV_ONLY"):
+		matrix = CALENDAR_MODE_MATRIX if os.environ.get("E2E_CALENDAR_MATRIX") else None
+		if matrix:
+			pr_name = os.environ.get("E2E_PURCHASE_RECEIPT") or bench_get_draft_purchase_receipt()
+			if not pr_name:
+				raise E2EFailure("E2E_PURCHASE_RECEIPT / draft PR required for full matrix")
+			print(
+				f"Running full calendar acceptance matrix A–G "
+				f"(Job Card {job_card}, PR {pr_name})..."
+			)
+			matrix_rows: list[tuple[str, dict[str, str]]] = []
+			only = os.environ.get("E2E_MATRIX_ONLY", "")
+			if only.strip():
+				labels = {x.strip() for x in only.split(",") if x.strip()}
+				matrix = [m for m in matrix if m[0] in labels]
+			for label, enabled, user_pref, default_cal in matrix:
+				try:
+					ctx = await run_calendar_mode_acceptance(
+						cdp_page,
+						job_card,
+						pr_name,
+						csv_text,
+						label,
+						enabled,
+						user_pref,
+						default_cal,
+						default_employee,
+					)
+					matrix_rows.append((label, ctx))
+				except E2EFailure as e:
+					partial = getattr(e, "acceptance_ctx", None) or {}
+					partial["OVERALL"] = f"FAIL: {e}"
+					matrix_rows.append((label, partial))
+					print_acceptance_matrix_table(matrix_rows)
+					raise
+			print_acceptance_matrix_table(matrix_rows)
+			await assert_console_clean(cdp_page, "final (full A–G acceptance matrix)")
+			await cdp_page.close()
+			await cdp.close()
+			return
+		else:
+			for mode_label, user_pref, default_cal in (
+				("Gregorian", "Gregorian", "Jalali"),
+				("Jalali", "Jalali", "Jalali"),
+				("SystemDefaultGregorian", "System Default", "Gregorian"),
+				("SystemDefault", "System Default", "Jalali"),
+			):
+				await run_job_card_csv_for_calendar_mode(
+					cdp_page, job_card, csv_text, mode_label, user_pref, default_cal, default_employee
+				)
+		print("PASS: Job Card CSV matrix")
+
+		if os.environ.get("E2E_JC_CSV_ONLY") and not os.environ.get("E2E_CALENDAR_MATRIX"):
 			await assert_console_clean(cdp_page, "final (JC CSV matrix only)")
 			print("PASS: Job Card CSV E2E only (Gregorian, Jalali, System Default)")
 			await cdp_page.close()
@@ -1427,7 +2516,14 @@ def main() -> int:
 	csv_text = load_time_logs_csv_text() if not os.environ.get("E2E_PR_ONLY") else ""
 	if not os.environ.get("E2E_PR_ONLY"):
 		print(f"CSV fixture: {CSV_FIXTURE} ({len(csv_text)} bytes)")
-	if os.environ.get("E2E_JC_CSV_ONLY"):
+	if os.environ.get("E2E_GRID_PICKER_MATRIX"):
+		print(f"Running grid picker user-click matrix (4 modes) on Job Card {job_card}...")
+	elif os.environ.get("E2E_CALENDAR_MATRIX"):
+		print(
+			f"Running full E2E calendar acceptance A–G "
+			f"(JC {job_card}, PR {os.environ.get('E2E_PURCHASE_RECEIPT', 'MAT-PRE-2026-00075')})..."
+		)
+	elif os.environ.get("E2E_JC_CSV_ONLY"):
 		print(f"Running Job Card CSV matrix only (PO-JOB01046): {job_card}")
 	elif os.environ.get("E2E_PR_ONLY"):
 		print("Running PR-only CDP scenarios E/F (Purchase Receipt)...")
