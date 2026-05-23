@@ -1,0 +1,9 @@
+Bulk Edit Time Logs
+From Time,To Time,Time In Mins,Completed Qty,Employee,Sub Operation
+from_time,to_time,time_in_mins,completed_qty,employee,operation
+,,,,,
+The CSV format is case sensitive
+Do not edit headers which are preset in the template
+------
+4/20/2026 8:30,4/20/2026 11:00,150,0,,
+4/20/2026 11:00,4/20/2026 13:30,150,0,,
