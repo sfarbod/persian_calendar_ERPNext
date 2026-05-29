@@ -50,6 +50,14 @@ GRID_PICKER_MODE_MATRIX: list[tuple[str, bool, str, str]] = [
 	("A", True, "System Default", "Jalali"),
 ]
 
+# BOM custom child table Date picker tests (no-freeze + save persistence).
+BOM_DATE_PICKER_MATRIX: list[tuple[str, bool, str, str]] = [
+	("B", True, "System Default", "Gregorian"),
+	("C", True, "Gregorian", "Jalali"),
+	("D", True, "Jalali", "Jalali"),
+	("A", True, "System Default", "Jalali"),
+]
+
 
 class E2EFailure(Exception):
 	pass
@@ -1435,10 +1443,70 @@ async def _run_job_card_csv_body(
 		})();
 		"""
 	)
+	# After isolation hard-reload the SPA can be stuck (route says Form but List DOM, no
+	# cur_frm). Reset with a full navigation to /app then into the Job Card form URL —
+	# same pattern as initial E2E setup, which reliably instantiates cur_frm.
+	neutral_url = f"{BASE_URL}/app"
+	await cdp_page.call("Page.navigate", {"url": neutral_url})
+	for _ in range(80):
+		await asyncio.sleep(0.5)
+		boot_ok = await cdp_page.evaluate("typeof frappe !== 'undefined' && !!frappe.boot")
+		if boot_ok:
+			break
+	else:
+		raise E2EFailure(f"{mode_label}: desk /app did not load after isolation")
+	await asyncio.sleep(2)
+	bundle_url = jalali_bundle_url() + f"?_={int(time.time())}"
+	await cdp_page.evaluate(
+		f"""
+		(function() {{
+			var s = document.createElement('script');
+			s.src = {json.dumps(bundle_url)};
+			document.head.appendChild(s);
+		}})();
+		"""
+	)
+	await asyncio.sleep(4)
+	await cdp_page.evaluate(E2E_CONSOLE_HOOK_JS)
+	await cdp_page.evaluate(E2E_SAVE_HOOKS_JS)
 	await cdp_page.evaluate(
 		f"frappe.set_route('Form', 'Job Card', {json.dumps(job_card)});"
 	)
-	await asyncio.sleep(4)
+	for _ in range(100):
+		await asyncio.sleep(0.5)
+		ready = await cdp_page.evaluate(
+			f"""(() => {{
+				try {{
+					return !!(typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc
+						&& cur_frm.doctype === 'Job Card'
+						&& String(cur_frm.docname) === {json.dumps(job_card)}
+						&& cur_frm.fields_dict && cur_frm.fields_dict.time_logs);
+				}} catch (e) {{ return false; }}
+			}})()"""
+		)
+		if ready:
+			break
+	else:
+		diag = await cdp_page.evaluate(
+			"""(() => {
+				try {
+					return {
+						hasBoot: typeof frappe !== 'undefined' && !!frappe.boot,
+						route: (typeof frappe !== 'undefined' && frappe.get_route) ? frappe.get_route() : null,
+						hasCurFrm: typeof cur_frm !== 'undefined' && !!cur_frm,
+						doctype: (typeof cur_frm !== 'undefined' && cur_frm) ? cur_frm.doctype : null,
+						docname: (typeof cur_frm !== 'undefined' && cur_frm) ? String(cur_frm.docname) : null,
+						hasTimeLogs: (typeof cur_frm !== 'undefined' && cur_frm && cur_frm.fields_dict)
+							? !!cur_frm.fields_dict.time_logs : null,
+						href: location.href
+					};
+				} catch (e) { return { err: String(e) }; }
+			})()"""
+		)
+		raise E2EFailure(
+			f"{mode_label}: Job Card {job_card!r} did not load after isolation diag={json.dumps(diag, default=str)}"
+		)
+	await asyncio.sleep(1)
 	await cdp_page.evaluate(
 		"""
 		(function() {
@@ -1604,6 +1672,303 @@ async def _run_job_card_csv_body(
 	if post.get("is_dirty"):
 		raise E2EFailure(f"{mode_label}: form dirty after save {post}")
 	print(f"PASS calendar mode {mode_label}: effective={post.get('effective')} save HTTP 200 clean form")
+
+
+async def run_bom_child_date_picker_for_calendar_mode(
+	cdp_page: CDPClient,
+	bom_name: str,
+	child_fieldname: str,
+	child_date_fieldname: str,
+	mode_label: str,
+	user_pref: str,
+	default_cal: str,
+	persian_calendar_enabled: bool = True,
+) -> None:
+	"""Open BOM, add child row, click child Date input, pick date, assert no freeze, save."""
+	await isolate_calendar_mode_for_e2e(
+		cdp_page, mode_label, persian_calendar_enabled, user_pref, default_cal
+	)
+	await cdp_page.evaluate(
+		f"frappe.set_route('Form', 'BOM', {json.dumps(bom_name)});"
+	)
+	for _ in range(40):
+		await asyncio.sleep(0.5)
+		probe = await cdp_page.evaluate(
+			f"""(() => {{
+				if (!cur_frm || !cur_frm.doc) return false;
+				if (cur_frm.doctype !== 'BOM') return false;
+				if (String(cur_frm.docname) !== {json.dumps(bom_name)}) return false;
+				return !!cur_frm.fields_dict[{json.dumps(child_fieldname)}];
+			}})()"""
+		)
+		if probe:
+			break
+	else:
+		raise E2EFailure(f"{mode_label}: BOM {bom_name!r} did not load with child field {child_fieldname!r}")
+	prep = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var childField = {json.dumps(child_fieldname)};
+			var dateField = {json.dumps(child_date_fieldname)};
+			var grid = cur_frm.fields_dict[childField] && cur_frm.fields_dict[childField].grid;
+			if (!grid) return {{ ok: false, error: 'no grid for ' + childField }};
+			var df = (cur_frm.meta.fields || []).find(function(f) {{ return f.fieldname === childField; }});
+			var childDoctype = df && df.options;
+			var dateDf = childDoctype
+				? (frappe.get_meta(childDoctype) && frappe.get_meta(childDoctype).fields || []).find(function(f) {{ return f.fieldname === dateField; }})
+				: null;
+			if (!dateDf) return {{ ok: false, error: 'no df ' + dateField + ' on ' + childDoctype }};
+			if (dateDf.fieldtype !== 'Date' && dateDf.fieldtype !== 'Datetime') {{
+				return {{ ok: false, error: 'unexpected fieldtype ' + dateDf.fieldtype }};
+			}}
+			if (!grid.grid_rows || !grid.grid_rows.length) {{
+				grid.add_new_row();
+				await new Promise(function(r) {{ setTimeout(r, 600); }});
+			}}
+			var gr = grid.grid_rows[0];
+			gr.doc[dateField] = '';
+			cur_frm.refresh_field(childField);
+			await new Promise(function(r) {{ setTimeout(r, 700); }});
+			gr = grid.grid_rows[0];
+			if (typeof gr.toggle_editable_row === 'function') gr.toggle_editable_row(true);
+			await new Promise(function(r) {{ setTimeout(r, 700); }});
+			var fld = gr.on_grid_fields_dict && gr.on_grid_fields_dict[dateField];
+			var input = fld && fld.$input && fld.$input.length ? fld.$input[0] : null;
+			if (!input) {{
+				var $w = gr.wrapper && gr.wrapper.jquery ? gr.wrapper : $(gr.wrapper);
+				input = $w.find('.frappe-control[data-fieldname="' + dateField + '"] input')[0];
+			}}
+			if (!input) return {{ ok: false, error: 'no date input' }};
+			input.scrollIntoView({{ block: 'center', inline: 'nearest' }});
+			await new Promise(function(r) {{ setTimeout(r, 200); }});
+			input.focus();
+			input.click();
+			await new Promise(function(r) {{ setTimeout(r, 900); }});
+			return {{
+				ok: true,
+				child_doctype: childDoctype,
+				fieldtype: dateDf.fieldtype,
+				value_before: gr.doc[dateField] || ''
+			}};
+		}})();
+		"""
+	)
+	if not prep or not prep.get("ok"):
+		raise E2EFailure(f"{mode_label}: BOM child prep failed: {prep}")
+	expect_jalali = expected_effective_mode(persian_calendar_enabled, user_pref, default_cal) == "Jalali"
+	picker_state = await cdp_page.evaluate(
+		f"""
+		(function() {{
+			function popupVisible() {{
+				var air = false;
+				document.querySelectorAll('.datepicker').forEach(function(el) {{
+					var s = window.getComputedStyle(el);
+					if (s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent) {{ air = true; }}
+				}});
+				var jalali = false;
+				document.querySelectorAll('.jalali-datepicker').forEach(function(el) {{
+					var s = window.getComputedStyle(el);
+					if (s.display !== 'none' && s.visibility !== 'hidden') {{ jalali = true; }}
+				}});
+				return {{ air: air, jalali: jalali }};
+			}}
+			return popupVisible();
+		}})();
+		"""
+	)
+	if expect_jalali:
+		if not picker_state.get("jalali"):
+			raise E2EFailure(f"{mode_label}: Jalali picker did not open for BOM child date: {picker_state}")
+	else:
+		if not picker_state.get("air"):
+			raise E2EFailure(f"{mode_label}: native Gregorian picker did not open for BOM child date: {picker_state}")
+	heart_setup = await cdp_page.evaluate(
+		"""
+		(function() {
+			window.__pcBomHeartbeat = [];
+			window.__pcBomHeartbeatStart = Date.now();
+			var tick = function() {
+				window.__pcBomHeartbeat.push(Date.now() - window.__pcBomHeartbeatStart);
+				if (window.__pcBomHeartbeat.length < 30) setTimeout(tick, 100);
+			};
+			setTimeout(tick, 100);
+			window.__persianCalendarCallCounts = {};
+			return true;
+		})();
+		"""
+	)
+	if not heart_setup:
+		raise E2EFailure(f"{mode_label}: heartbeat setup failed")
+	pick_result = await cdp_page.evaluate(
+		f"""
+		(async function() {{
+			var expectJalali = {json.dumps(expect_jalali)};
+			var grid = cur_frm.fields_dict[{json.dumps(child_fieldname)}].grid;
+			var gr = grid.grid_rows[0];
+			var fld = gr.on_grid_fields_dict[{json.dumps(child_date_fieldname)}];
+			var input = fld && fld.$input && fld.$input.length ? fld.$input[0] : null;
+			if (!input) return {{ ok: false, error: 'no input post-prep' }};
+			if (expectJalali) {{
+				var jpi = $(input).data('jalaliDatepickerInstance') || fld.jalaliDatepicker;
+				if (jpi && typeof jpi.selectDate === 'function') {{
+					if (jpi.currentDate) {{
+						jpi.currentDate.jy = 1405;
+						jpi.currentDate.jm = 1;
+					}}
+					jpi.selectDate(31);
+				}}
+			}} else {{
+				var dp = fld.datepicker || $(input).data('datepicker');
+				if (dp && typeof dp.selectDate === 'function') {{
+					dp.selectDate(new Date(2026, 3, 20));
+				}}
+			}}
+			await new Promise(function(r) {{ setTimeout(r, 2000); }});
+			var pcCounts = window.__persianCalendarCallCounts || {{}};
+			return {{
+				ok: true,
+				visible: input.value,
+				model: gr.doc[{json.dumps(child_date_fieldname)}],
+				is_dirty: cur_frm.is_dirty(),
+				loop_break: window.__pcLoopBreak || null,
+				heart_len: (window.__pcBomHeartbeat || []).length,
+				heart_max_gap: (function() {{
+					var hb = window.__pcBomHeartbeat || [];
+					var max = 0;
+					for (var i = 1; i < hb.length; i++) {{
+						var d = hb[i] - hb[i - 1];
+						if (d > max) max = d;
+					}}
+					return max;
+				}})(),
+				invalid_log: (window.__persianCalendarInvalidDateLog || []).length,
+				pc_counts: pcCounts
+			}};
+		}})();
+		"""
+	)
+	print(f"BOM mode {mode_label}: pick result {pick_result}")
+	if not pick_result or not pick_result.get("ok"):
+		raise E2EFailure(f"{mode_label}: BOM child pick failed: {pick_result}")
+	if pick_result.get("loop_break"):
+		raise E2EFailure(
+			f"{mode_label}: synchronous loop detected after BOM date pick: "
+			f"{json.dumps(pick_result.get('loop_break'), default=str)[:3000]}"
+		)
+	if pick_result.get("heart_len", 0) < 15:
+		raise E2EFailure(
+			f"{mode_label}: event loop appears frozen after BOM date pick "
+			f"(heart_len={pick_result.get('heart_len')} max_gap={pick_result.get('heart_max_gap')})"
+		)
+	if pick_result.get("heart_max_gap", 0) > 1500:
+		raise E2EFailure(
+			f"{mode_label}: long event-loop stall after BOM date pick "
+			f"(max_gap={pick_result.get('heart_max_gap')}ms)"
+		)
+	model_val = str(pick_result.get("model") or "")
+	if not re.match(r"^\d{4}-\d{2}-\d{2}", model_val):
+		raise E2EFailure(f"{mode_label}: BOM child model not YYYY-MM-DD: {model_val!r}")
+	if "Invalid date" in model_val or "NaN" in model_val:
+		raise E2EFailure(f"{mode_label}: BOM child model invalid: {model_val!r}")
+	if pick_result.get("invalid_log", 0):
+		raise E2EFailure(f"{mode_label}: Invalid date watch triggered after BOM pick")
+	if not pick_result.get("is_dirty"):
+		raise E2EFailure(f"{mode_label}: form not dirty after BOM child date select")
+	# Fill any other mandatory fields on the child row so save isn't blocked by validation
+	# (the freeze fix is what we're testing; missing-mandatory is unrelated harness noise).
+	await cdp_page.evaluate(
+		f"""
+		(function() {{
+			var childField = {json.dumps(child_fieldname)};
+			var dateField = {json.dumps(child_date_fieldname)};
+			var grid = cur_frm.fields_dict[childField].grid;
+			var gr = grid.grid_rows[0];
+			var df = (cur_frm.meta.fields || []).find(function(f) {{ return f.fieldname === childField; }});
+			var childDoctype = df && df.options;
+			var meta = childDoctype ? frappe.get_meta(childDoctype) : null;
+			(meta && meta.fields || []).forEach(function(cf) {{
+				if (!cf.reqd) return;
+				if (cf.fieldname === dateField) return;
+				if (gr.doc[cf.fieldname]) return;
+				if (cf.fieldtype === 'Int' || cf.fieldtype === 'Float' || cf.fieldtype === 'Currency') {{
+					gr.doc[cf.fieldname] = 1;
+				}} else if (cf.fieldtype === 'Date') {{
+					gr.doc[cf.fieldname] = '2026-04-20';
+				}} else if (cf.fieldtype === 'Datetime') {{
+					gr.doc[cf.fieldname] = '2026-04-20 12:00:00';
+				}} else {{
+					gr.doc[cf.fieldname] = 'E2E test';
+				}}
+			}});
+			cur_frm.refresh_field(childField);
+			cur_frm.dirty();
+		}})();
+		"""
+	)
+	await asyncio.sleep(0.6)
+	await cdp_page.evaluate("window.__pcE2ESaveDone = null; window.__pcE2ELastSavedocs = null;")
+	await cdp_page.evaluate(
+		"""
+		(function() {
+			cur_frm.save('Save', function(r) {
+				window.__pcE2ESaveDone = { ok: !r.exc, exc: r.exc, validated: frappe.validated };
+			}, null, function() {
+				window.__pcE2ESaveDone = { ok: false, error: 'save_on_error' };
+			});
+		})();
+		"""
+	)
+	for _ in range(120):
+		await asyncio.sleep(0.5)
+		if await cdp_page.evaluate("window.__pcE2ESaveDone"):
+			break
+	else:
+		raise E2EFailure(f"{mode_label}: BOM save timeout")
+	save_meta = await cdp_page.evaluate(
+		"""(() => ({ done: window.__pcE2ESaveDone, savedocs: window.__pcE2ELastSavedocs }))()"""
+	)
+	sd = save_meta.get("savedocs") or {}
+	http_status = sd.get("httpStatus")
+	body = str(sd.get("body") or "")
+	if not save_meta.get("done", {}).get("ok"):
+		raise E2EFailure(f"{mode_label}: BOM save failed {save_meta}")
+	if http_status != 200:
+		raise E2EFailure(f"{mode_label}: BOM savedocs HTTP {http_status} body={body[:1500]}")
+	post = await cdp_page.evaluate(
+		f"""(() => ({{
+			is_dirty: cur_frm.is_dirty(),
+			model: (cur_frm.doc[{json.dumps(child_fieldname)}] || [])[0]
+				? (cur_frm.doc[{json.dumps(child_fieldname)}] || [])[0][{json.dumps(child_date_fieldname)}]
+				: null
+		}}))()"""
+	)
+	if post.get("is_dirty"):
+		raise E2EFailure(f"{mode_label}: form dirty after BOM save {post}")
+	await cdp_page.call("Page.reload", {"ignoreCache": True})
+	for _ in range(60):
+		await asyncio.sleep(0.5)
+		ready = await cdp_page.evaluate(
+			f"!!(typeof cur_frm !== 'undefined' && cur_frm && cur_frm.doc && cur_frm.docname === {json.dumps(bom_name)})"
+		)
+		if ready:
+			break
+	else:
+		raise E2EFailure(f"{mode_label}: BOM did not reload after save")
+	persisted = await cdp_page.evaluate(
+		f"""(() => {{
+			var rows = cur_frm.doc[{json.dumps(child_fieldname)}] || [];
+			return rows[0] ? rows[0][{json.dumps(child_date_fieldname)}] : null;
+		}})()"""
+	)
+	if str(persisted or "")[:10] != model_val[:10]:
+		raise E2EFailure(
+			f"{mode_label}: BOM child date did not persist (saved={model_val!r} reloaded={persisted!r})"
+		)
+	await assert_console_clean(cdp_page, f"BOM mode {mode_label} (after save+reload)")
+	print(
+		f"PASS BOM mode {mode_label}: child {child_date_fieldname} selected={model_val} persisted={persisted} "
+		f"heart_len={pick_result.get('heart_len')} max_gap={pick_result.get('heart_max_gap')}ms"
+	)
 
 
 async def run_job_card_csv_for_calendar_mode(
@@ -1829,6 +2194,7 @@ async def run_scenarios(job_card: str, sid_value: str, csv_text: str) -> None:
 			not os.environ.get("E2E_JC_CSV_ONLY")
 			and not os.environ.get("E2E_CALENDAR_MATRIX")
 			and not os.environ.get("E2E_GRID_PICKER_MATRIX")
+			and not os.environ.get("E2E_BOM_DATE_MATRIX")
 		):
 			pr_name = bench_get_draft_purchase_receipt()
 			for scenario_id, default_cal in (("E", "Jalali"), ("F", "Gregorian")):
@@ -2131,6 +2497,30 @@ async def run_scenarios(job_card: str, sid_value: str, csv_text: str) -> None:
 					enabled,
 				)
 			await assert_console_clean(cdp_page, "final (grid picker matrix)")
+			await cdp_page.close()
+			await cdp.close()
+			return
+
+		if os.environ.get("E2E_BOM_DATE_MATRIX"):
+			bom_name = os.environ.get("E2E_BOM_NAME", "BOM-Temporary-20100210-003")
+			child_field = os.environ.get("E2E_BOM_CHILD_FIELD", "custom_packaging_change_history_table")
+			child_date_field = os.environ.get("E2E_BOM_CHILD_DATE_FIELD", "date_of_change")
+			print(
+				f"Running BOM child Date picker matrix (4 modes) on "
+				f"{bom_name}/{child_field}/{child_date_field}..."
+			)
+			for label, enabled, user_pref, default_cal in BOM_DATE_PICKER_MATRIX:
+				await run_bom_child_date_picker_for_calendar_mode(
+					cdp_page,
+					bom_name,
+					child_field,
+					child_date_field,
+					label,
+					user_pref,
+					default_cal,
+					enabled,
+				)
+			await assert_console_clean(cdp_page, "final (BOM date picker matrix)")
 			await cdp_page.close()
 			await cdp.close()
 			return
@@ -2518,6 +2908,11 @@ def main() -> int:
 		print(f"CSV fixture: {CSV_FIXTURE} ({len(csv_text)} bytes)")
 	if os.environ.get("E2E_GRID_PICKER_MATRIX"):
 		print(f"Running grid picker user-click matrix (4 modes) on Job Card {job_card}...")
+	elif os.environ.get("E2E_BOM_DATE_MATRIX"):
+		print(
+			f"Running BOM child Date picker matrix (4 modes) on "
+			f"{os.environ.get('E2E_BOM_NAME', 'BOM-Temporary-20100210-003')}..."
+		)
 	elif os.environ.get("E2E_CALENDAR_MATRIX"):
 		print(
 			f"Running full E2E calendar acceptance A–G "
