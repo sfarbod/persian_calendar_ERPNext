@@ -356,6 +356,97 @@
     console.warn("[persian_calendar trace]", fn, detail);
   }
 
+  let pcSyncCallCount = 0;
+  let pcSyncResetScheduled = false;
+
+  /**
+   * Synchronous loop circuit-breaker. Counts wrapped-method entries within a single
+   * macrotask. If a runaway synchronous loop blows the budget, records the offending
+   * site + stack to window.__pcLoopBreak and throws to unwind the recursion (so the
+   * page recovers instead of hard-freezing). The counter resets on the next macrotask.
+   */
+  function pcLoopGuard(name, detail) {
+    pcSyncCallCount += 1;
+    if (!pcSyncResetScheduled) {
+      pcSyncResetScheduled = true;
+      setTimeout(() => {
+        pcSyncCallCount = 0;
+        pcSyncResetScheduled = false;
+      }, 0);
+    }
+    if (pcSyncCallCount > 3000) {
+      const err = new Error(
+        "persian_calendar sync loop budget exceeded at " + name
+      );
+      try {
+        const win = typeof window !== "undefined" ? window : null;
+        if (win && !win.__pcLoopBreak) {
+          win.__pcLoopBreak = {
+            name,
+            detail: detail || null,
+            stack: err.stack,
+            count: pcSyncCallCount,
+          };
+        }
+        console.error("[persian_calendar loop_break]", name, detail, err.stack);
+      } catch (e) {
+        /* ignore */
+      }
+      throw err;
+    }
+  }
+
+  function isLoopTraceEnabled() {
+    try {
+      return (
+        typeof localStorage !== "undefined" &&
+        localStorage.getItem("persian_calendar_loop_trace") === "1"
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Lightweight loop tracer. When `persian_calendar_loop_trace=1` in localStorage,
+   * counts hits per (fn,fieldname) per second. If >50 in one window, dumps stack
+   * and resets the counter to prevent console spam.
+   */
+  function pcLoopTrace(fn, detail) {
+    if (!isLoopTraceEnabled()) {
+      return;
+    }
+    const win = typeof window !== "undefined" ? window : null;
+    if (!win) {
+      return;
+    }
+    win.__pcLoopTrace = win.__pcLoopTrace || {};
+    const key = String(fn) + "|" + ((detail && detail.field) || "?");
+    const now = Date.now();
+    const entry = win.__pcLoopTrace[key] || { start: now, count: 0, warned: false };
+    if (now - entry.start > 1000) {
+      entry.start = now;
+      entry.count = 0;
+      entry.warned = false;
+    }
+    entry.count += 1;
+    win.__pcLoopTrace[key] = entry;
+    if (entry.count > 50 && !entry.warned) {
+      entry.warned = true;
+      try {
+        console.warn(
+          "[persian_calendar loop_trace] potential loop",
+          fn,
+          detail,
+          "count=" + entry.count + "/s"
+        );
+        console.trace("[persian_calendar loop_trace] stack");
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
   function incCallCount(name) {
     try {
       const win = typeof window !== "undefined" ? window : null;
@@ -2687,13 +2778,18 @@ class JalaliDatepicker {
     GridRow.prototype.refresh_field = function (fieldname, txt) {
       origRefreshField.apply(this, arguments);
       if (!shouldUseJalaliCalendar()) {
+        // Passive in Gregorian mode: never write back to the model and never rebuild
+        // the native Air Datepicker here. Doing so during a date selection re-triggered
+        // refresh_field → ensure → reinit → set_value and froze the page. The native
+        // picker is created once at control creation; CSV imports are normalized via
+        // normalizeImportedChildTableRows on the Table refresh, not per cell.
         const df = getGridRowFieldDf(this, fieldname);
         if (df && (df.fieldtype === "Datetime" || df.fieldtype === "Date")) {
-          coerceGridRowDatetimeField(this, fieldname, df.fieldtype);
-        }
-        const field = this.on_grid_fields_dict?.[fieldname];
-        if (field) {
-          ensureGregorianNativeDatepickerActive(field);
+          pcLoopTrace("GridRow.refresh_field(Gregorian)", {
+            field: fieldname,
+            doctype: this.doc?.doctype,
+            parenttype: this.doc?.parenttype,
+          });
         }
         return;
       }
@@ -2854,19 +2950,61 @@ class JalaliDatepicker {
     return !!(dp && dp.$datepicker);
   }
 
+  /**
+   * Passive Gregorian cleanup for control refresh: strip a leftover Jalali picker when
+   * switching from Jalali to Gregorian, but NEVER rebuild the native Air Datepicker
+   * (Frappe's own refresh_input/make_input owns it). Rebuilding here re-fired change →
+   * Grid.set_value → refresh_field → refresh_input and froze the page.
+   */
+  function cleanupStaleJalaliInGregorian(field) {
+    if (!field || shouldUseJalaliCalendar()) {
+      return;
+    }
+    if (field.jalaliDatepicker) {
+      stripJalaliPickerFromField(field);
+      field.jalaliDatepicker = null;
+    }
+    clearJalaliShimDatepicker(field);
+    if (
+      field.$input?.length &&
+      (field.$input.data("jalaliDatepickerInstance") ||
+        field.$input.attr("data-has-jalali-datepicker") === "true")
+    ) {
+      destroyJalaliDatepickerOnInput(field.$input);
+    }
+  }
+
   function ensureGregorianNativeDatepickerActive(field) {
     if (!field?.$input?.length || shouldUseJalaliCalendar()) {
       return;
     }
-    clearJalaliShimDatepicker(field);
-    if (
-      field.$input.data("jalaliDatepickerInstance") ||
-      field.$input.attr("data-has-jalali-datepicker") === "true"
-    ) {
-      destroyJalaliDatepickerOnInput(field.$input);
+    if (field._pcEnsuringGregorian) {
+      pcLoopTrace("ensureGregorianNativeDatepickerActive reentry blocked", {
+        field: field.df?.fieldname,
+      });
+      return;
     }
-    if (!hasNativeAirDatepicker(field)) {
-      reinitializeGregorianDateControl(field);
+    field._pcEnsuringGregorian = true;
+    try {
+      pcLoopTrace("ensureGregorianNativeDatepickerActive", {
+        field: field.df?.fieldname,
+        fieldtype: field.df?.fieldtype,
+      });
+      clearJalaliShimDatepicker(field);
+      const hadJalaliArtifact =
+        field.$input.data("jalaliDatepickerInstance") ||
+        field.$input.attr("data-has-jalali-datepicker") === "true";
+      if (hadJalaliArtifact) {
+        destroyJalaliDatepickerOnInput(field.$input);
+      }
+      // Only (re)build a native picker when one is genuinely missing. Never rebuild an
+      // already-working native Air Datepicker — doing so during onSelect causes a loop.
+      if (!hasNativeAirDatepicker(field)) {
+        reinitializeGregorianDateControl(field);
+      }
+      hookGregorianPickerOnShow(field);
+    } finally {
+      field._pcEnsuringGregorian = false;
     }
   }
 
@@ -3017,13 +3155,8 @@ class JalaliDatepicker {
     if (ft !== "Date" && ft !== "Datetime") {
       return null;
     }
-    if (field.grid_row?.doc && field.df?.fieldname) {
-      coerceGridRowDatetimeField(
-        field.grid_row,
-        field.df.fieldname,
-        ft
-      );
-    }
+    // Read-only: never mutate the model from this getter. (A coerce-write here
+    // re-triggered grid set_value → refresh → set_formatted_input → loop.)
     let raw =
       (field.grid_row?.doc && field.df?.fieldname
         ? field.grid_row.doc[field.df.fieldname]
@@ -3066,6 +3199,12 @@ class JalaliDatepicker {
     if (!field || shouldUseJalaliCalendar() || !field.datepicker) {
       return;
     }
+    if (field._pcInPickerSync) {
+      pcLoopTrace("syncGregorianNativePickerFromModel reentry blocked", {
+        field: field.df?.fieldname,
+      });
+      return;
+    }
     const iso = getGregorianControlModelIso(field);
     if (!iso) {
       return;
@@ -3074,13 +3213,32 @@ class JalaliDatepicker {
     if (!dateObj) {
       return;
     }
+    const existing =
+      Array.isArray(field.datepicker.selectedDates) &&
+      field.datepicker.selectedDates.length
+        ? field.datepicker.selectedDates[0]
+        : null;
+    const sameSelected =
+      existing instanceof Date && existing.getTime() === dateObj.getTime();
+    field._pcInPickerSync = true;
     try {
-      field.datepicker.selectDate(dateObj);
+      if (!sameSelected) {
+        field.datepicker.selectDate(dateObj);
+      }
+      // air-datepicker v2: the nav title is rendered from `currentDate`, and only the
+      // `date` setter updates currentDate AND re-renders the nav (`nav._render()`).
+      // Assigning `viewDate`/`selectDate` alone leaves a stale title (showed "today").
+      // The `date` setter does NOT fire onSelect, so this cannot re-enter set_value.
       field.datepicker.viewDate = dateObj;
-      const $dp = field.datepicker.$datepicker;
-      if ($dp && $dp.length && typeof moment !== "undefined") {
-        const titleText = moment(dateObj).format("MMMM, YYYY");
-        $dp.find(".datepicker--nav-title").text(titleText);
+      try {
+        field.datepicker.date = dateObj;
+      } catch (e) {
+        const $dp = field.datepicker.$datepicker;
+        if ($dp && $dp.length && typeof moment !== "undefined") {
+          $dp
+            .find(".datepicker--nav-title")
+            .text(moment(dateObj).format("MMMM, YYYY"));
+        }
       }
     } catch (e) {
       pcTrace("syncGregorianNativePickerFromModel failed", {
@@ -3088,22 +3246,31 @@ class JalaliDatepicker {
         iso,
         error: String(e),
       });
+    } finally {
+      field._pcInPickerSync = false;
     }
   }
 
   function hookGregorianPickerOnShow(field) {
-    if (!field?.datepicker || field._pcGregorianOnShowHooked || shouldUseJalaliCalendar()) {
+    if (!field?.datepicker || shouldUseJalaliCalendar()) {
       return;
     }
-    field._pcGregorianOnShowHooked = true;
     const dp = field.datepicker;
+    if (dp._pcGregorianOnShowHooked) {
+      return;
+    }
+    dp._pcGregorianOnShowHooked = true;
     const origOnShow = dp.opts && dp.opts.onShow;
     const wrappedOnShow = () => {
+      pcLoopTrace("gregorianPickerOnShow", { field: field.df?.fieldname });
       syncGregorianNativePickerFromModel(field);
       if (typeof origOnShow === "function") {
-        origOnShow.call(dp);
+        try {
+          origOnShow.call(dp);
+        } catch (e) {
+          /* ignore */
+        }
       }
-      syncGregorianNativePickerFromModel(field);
     };
     if (typeof dp.update === "function") {
       dp.update({ onShow: wrappedOnShow });
@@ -3169,6 +3336,11 @@ class JalaliDatepicker {
     if (ft !== "Date" && ft !== "Datetime") {
       return;
     }
+    pcLoopTrace("reinitializeGregorianDateControl", {
+      field: field.df.fieldname,
+      fieldtype: ft,
+      doctype: field.df.parent,
+    });
     const ControlClass =
       ft === "Datetime"
         ? frappe.ui.form.ControlDatetime
@@ -3177,21 +3349,20 @@ class JalaliDatepicker {
       return;
     }
     const savedVal =
-      (typeof field.get_value === "function" && field.get_value()) ||
-      field.value ||
-      (field.doc && field.df.fieldname ? field.doc[field.df.fieldname] : null);
+      (field.doc && field.df.fieldname ? field.doc[field.df.fieldname] : null) ??
+      field.value ??
+      (typeof field.get_value === "function" ? field.get_value() : null);
     stripJalaliPickerFromField(field);
     if (field.$input?.length && !isTimeFieldInput(field.$input)) {
       destroyAirDatepickerForInput(field.$input);
     }
     ControlClass.prototype.make_input.call(field);
-    if (savedVal != null && savedVal !== "") {
-      if (typeof field.set_value === "function") {
-        field.set_value(savedVal);
-      } else if (typeof field.set_formatted_input === "function") {
-        field.set_formatted_input(savedVal);
-      }
+    // Display only — never write back to the model here. Calling set_value from picker
+    // (re)init would re-trigger refresh_field → ensure → reinit and freeze the page.
+    if (savedVal != null && savedVal !== "" && typeof field.set_formatted_input === "function") {
+      field.set_formatted_input(savedVal);
     }
+    hookGregorianPickerOnShow(field);
   }
 
   function teardownGregorianCalendarUI() {
@@ -3508,10 +3679,16 @@ class JalaliDatepicker {
     if (raw == null || raw === "") {
       return null;
     }
-    const iso =
+    let iso =
       fieldtype === "Datetime"
         ? U.coerceToGregorianDateTime(raw) || U.normalizeModelDateTime(raw)
         : U.coerceToGregorianDateTime(raw) || U.normalizeModelDate(raw);
+    // Date fields must stay YYYY-MM-DD. coerceToGregorianDateTime always returns a
+    // datetime, so without slicing, a Date value oscillated against the native Date
+    // picker (date ⇄ datetime) and froze the page on selection.
+    if (fieldtype === "Date" && iso) {
+      iso = String(iso).slice(0, 10);
+    }
     if (iso && iso !== raw) {
       grid_row.doc[fieldname] = iso;
     }
@@ -4135,7 +4312,7 @@ class JalaliDatepicker {
       }
 
       set_formatted_input(value) {
-        
+        pcLoopGuard("ControlDate.set_formatted_input", { field: this.df?.fieldname });
         try {
           // Check cache first
           const useJalali = shouldUseJalaliCalendar();
@@ -4145,16 +4322,16 @@ class JalaliDatepicker {
               stripJalaliPickerFromField(this);
               this.jalaliDatepicker = null;
             }
+            pcLoopTrace("JalaliControlDate.set_formatted_input(Gregorian)", {
+              field: this.df?.fieldname,
+              value,
+            });
             const forBase = gregorianInputValueForBase(this, value);
             const BaseSet =
               this.df?.fieldtype === "Datetime"
                 ? BaseControlDatetime.prototype.set_formatted_input
                 : BaseControlDate.prototype.set_formatted_input;
-            const ret = BaseSet.call(this, forBase);
-            if (this.datepicker) {
-              syncGregorianNativePickerFromModel(this);
-            }
-            return ret;
+            return BaseSet.call(this, forBase);
           }
 
           if (!value) {
@@ -4182,22 +4359,15 @@ class JalaliDatepicker {
       }
 
       format_for_input(value) {
+        pcLoopGuard("ControlDate.format_for_input", { field: this.df?.fieldname });
         if (!shouldUseJalaliCalendar()) {
           if (this.jalaliDatepicker) {
             stripJalaliPickerFromField(this);
             this.jalaliDatepicker = null;
           }
-          if (this.grid_row?.doc && this.df?.fieldname) {
-            coerceGridRowDatetimeField(
-              this.grid_row,
-              this.df.fieldname,
-              this.df.fieldtype
-            );
-            const m = this.grid_row.doc[this.df.fieldname];
-            if (m) {
-              value = m;
-            }
-          }
+          // Passive: never mutate the model from a formatting call. The earlier coerce
+          // here rewrote Date values into datetime strings, which never stabilized
+          // against the native picker and looped on selection.
           return BaseControlDate.prototype.format_for_input.call(this, value);
         }
         if (!this.grid_row) {
@@ -4212,6 +4382,7 @@ class JalaliDatepicker {
       }
 
       set_value(value) {
+        pcLoopGuard("ControlDate.set_value", { field: this.df?.fieldname });
         if (this.jalaliDatepicker && value != null && value !== "") {
           const isDateTime = this.df && this.df.fieldtype === "Datetime";
           const U = getDateUtils();
@@ -4255,6 +4426,7 @@ class JalaliDatepicker {
       }
 
       refresh_input() {
+        pcLoopGuard("ControlDate.refresh_input", { field: this.df?.fieldname });
         if (shouldUseJalaliCalendar()) {
           if (this.$input?.length) {
             destroyAirDatepickerForInput(this.$input);
@@ -4270,7 +4442,14 @@ class JalaliDatepicker {
         if (shouldUseJalaliCalendar()) {
           applyJalaliControlDisplay(this);
         } else {
-          ensureGregorianNativeDatepickerActive(this);
+          // Passive: Frappe's own refresh_input/make_input owns the native Air
+          // Datepicker. Only remove a stale Jalali picker when switching modes —
+          // never rebuild the native one here (that re-fired change → Grid.set_value
+          // → refresh_field → refresh_input and froze the page). Re-attach the cheap,
+          // loop-safe onShow hook so the picker view/title syncs to the model when the
+          // user opens it (datepicker may not have existed yet at make_input time).
+          cleanupStaleJalaliInGregorian(this);
+          hookGregorianPickerOnShow(this);
         }
         return result;
       }
@@ -4314,22 +4493,13 @@ class JalaliDatepicker {
       }
 
       format_for_input(value) {
+        pcLoopGuard("ControlDatetime.format_for_input", { field: this.df?.fieldname });
         if (!shouldUseJalaliCalendar()) {
           if (this.jalaliDatepicker) {
             stripJalaliPickerFromField(this);
             this.jalaliDatepicker = null;
           }
-          if (this.grid_row?.doc && this.df?.fieldname) {
-            coerceGridRowDatetimeField(
-              this.grid_row,
-              this.df.fieldname,
-              this.df.fieldtype
-            );
-            const m = this.grid_row.doc[this.df.fieldname];
-            if (m) {
-              value = m;
-            }
-          }
+          // Passive: do not mutate the model from a formatting call (see ControlDate).
           return BaseControlDatetime.prototype.format_for_input.call(this, value);
         }
         if (!this.grid_row) {
@@ -4342,13 +4512,16 @@ class JalaliDatepicker {
       }
 
       refresh_input() {
+        pcLoopGuard("ControlDatetime.refresh_input", { field: this.df?.fieldname });
         if (!shouldUseJalaliCalendar()) {
-          removeJalaliFromField(this);
-          const ret =
+          cleanupStaleJalaliInGregorian(this);
+          const result =
             BaseControlDatetime.prototype.refresh_input &&
             BaseControlDatetime.prototype.refresh_input.call(this);
-          ensureGregorianNativeDatepickerActive(this);
-          return ret;
+          // Loop-safe: only wraps the picker's onShow callback (fires on user open),
+          // never rebuilds the picker or writes the model.
+          hookGregorianPickerOnShow(this);
+          return result;
         }
         if (shouldUseJalaliCalendar()) {
           if (this.$input?.length) {
@@ -4369,6 +4542,7 @@ class JalaliDatepicker {
       }
 
       set_formatted_input(value) {
+        pcLoopGuard("ControlDatetime.set_formatted_input", { field: this.df?.fieldname });
         try {
           const useJalali = shouldUseJalaliCalendar();
 
@@ -4377,12 +4551,12 @@ class JalaliDatepicker {
               stripJalaliPickerFromField(this);
               this.jalaliDatepicker = null;
             }
+            pcLoopTrace("JalaliControlDatetime.set_formatted_input(Gregorian)", {
+              field: this.df?.fieldname,
+              value,
+            });
             const forBase = gregorianInputValueForBase(this, value);
-            const ret = BaseControlDatetime.prototype.set_formatted_input.call(this, forBase);
-            if (this.datepicker) {
-              syncGregorianNativePickerFromModel(this);
-            }
-            return ret;
+            return BaseControlDatetime.prototype.set_formatted_input.call(this, forBase);
           }
 
           if (!value) {
@@ -4412,6 +4586,7 @@ class JalaliDatepicker {
       }
 
       set_value(value) {
+        pcLoopGuard("ControlDatetime.set_value", { field: this.df?.fieldname });
         if (this.jalaliDatepicker && value != null && value !== "") {
           const greg = getDateUtils().normalizeModelDateTime(value);
           const cur = this.get_model_value?.();
