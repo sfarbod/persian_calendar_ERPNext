@@ -194,33 +194,39 @@
     };
   }
 
-  const orig_date_formatter = frappe.form.formatters.date;
-  const orig_datetime_formatter = frappe.form.formatters.datetime;
+  // Frappe resolves formatters via frappe.form.get_formatter(fieldtype) using PascalCase
+  // keys (Date, Datetime). Lowercase .date / .datetime are never invoked from list view.
+  if (!frappe.form.formatters._pcJalaliPatched) {
+    const orig_date_formatter = frappe.form.formatters.Date;
+    const orig_datetime_formatter = frappe.form.formatters.Datetime;
 
-  frappe.form.formatters.date = function (value, df, options, doc) {
-    if (!value) return value;
-    if (!shouldConvertToJalali()) {
-      const safe = coerceGregorianDisplayValue(value, "Date");
-      if (orig_date_formatter) {
-        return orig_date_formatter(safe, df, options, doc);
+    frappe.form.formatters.Date = function (value, df, options, doc) {
+      if (!value) return value;
+      if (!shouldConvertToJalali()) {
+        const safe = coerceGregorianDisplayValue(value, "Date");
+        if (orig_date_formatter) {
+          return orig_date_formatter(safe, df, options, doc);
+        }
+        return safe;
       }
-      return safe;
-    }
-    return g2j_str(value, "Date");
-  };
+      return g2j_str(value, "Date");
+    };
 
-  frappe.form.formatters.datetime = function (value, df, options, doc) {
-    if (!value) return value;
-    if (!shouldConvertToJalali()) {
-      const safe = coerceGregorianDisplayValue(value, "Datetime");
-      traceFmt("form.formatters.datetime (Gregorian)", { in: value, safe });
-      if (orig_datetime_formatter) {
-        return orig_datetime_formatter(safe, df, options, doc);
+    frappe.form.formatters.Datetime = function (value, df, options, doc) {
+      if (!value) return value;
+      if (!shouldConvertToJalali()) {
+        const safe = coerceGregorianDisplayValue(value, "Datetime");
+        traceFmt("form.formatters.Datetime (Gregorian)", { in: value, safe });
+        if (orig_datetime_formatter) {
+          return orig_datetime_formatter(safe, df, options, doc);
+        }
+        return safe;
       }
-      return safe;
-    }
-    return g2j_str(value, "Datetime");
-  };
+      return g2j_str(value, "Datetime");
+    };
+
+    frappe.form.formatters._pcJalaliPatched = true;
+  }
 
   if (frappe.format && !frappe.format._pcCoercePatched) {
     const origFrappeFormat = frappe.format;

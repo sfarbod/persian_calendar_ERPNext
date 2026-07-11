@@ -7,7 +7,9 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node persian_calendar/public/js/jalali_support/test_formatters.mjs",
+    "test:formatters": "node persian_calendar/public/js/jalali_support/test_formatters.mjs",
+    "test:e2e": "node playwright_persian_calendar_employee_checkin_list_e2e.mjs"
   },
   "repository": {
     "type": "git",
@@ -20,5 +22,8 @@
   "bugs": {
     "url": "https://github.com/sfarbod/persian_calendar_ERPNext/issues"
   },
-  "homepage": "https://github.com/sfarbod/persian_calendar_ERPNext#readme"
+  "homepage": "https://github.com/sfarbod/persian_calendar_ERPNext#readme",
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  }
 }
