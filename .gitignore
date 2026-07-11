@@ -1,8 +1,28 @@
+# macOS
 .DS_Store
+
+# Python
+__pycache__/
 *.pyc
 *.egg-info
+
+# Editors
 *.swp
 tags
-node_modules
-__pycache__
-persian_calendar/public/dist/js
+
+# Node
+node_modules/
+
+# Build
+persian_calendar/public/dist/js/
+
+# Playwright
+playwright-report/
+test-results/
+e2e/screenshots/
+
+# Local Cursor settings
+.cursor/
+
+# Local environment
+environment.json

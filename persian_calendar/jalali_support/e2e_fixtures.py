@@ -307,6 +307,65 @@ def set_calendar_e2e_context(
 	}
 
 
+def _get_or_create_e2e_employee() -> str:
+	company = _default_company()
+	email = "pc-e2e-checkin@example.com"
+	employee = frappe.db.get_value("Employee", {"user_id": email}, "name")
+	if employee:
+		return employee
+	employee = frappe.db.get_value("Employee", {"company": company, "status": "Active"}, "name")
+	if employee:
+		return employee
+	doc = frappe.new_doc("Employee")
+	doc.first_name = "PC"
+	doc.last_name = "E2E Checkin"
+	doc.company = company
+	doc.date_of_birth = "1990-01-01"
+	doc.date_of_joining = frappe.utils.today()
+	doc.gender = "Male"
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+@frappe.whitelist()
+def create_employee_checkin_datetime_fixture(
+	checkin_time: str = "2026-05-24 23:30:00",
+) -> dict[str, Any]:
+	"""Create a development-only Employee Checkin row for list/form datetime E2E."""
+	_require_e2e()
+	if "hrms" not in frappe.get_installed_apps():
+		frappe.throw(_("HRMS is required for Employee Checkin E2E fixture"))
+
+	employee = _get_or_create_e2e_employee()
+
+	doc = frappe.new_doc("Employee Checkin")
+	doc.employee = employee
+	doc.time = checkin_time
+	doc.device_id = "PC-E2E"
+	doc.insert(ignore_permissions=True)
+	frappe.db.commit()
+	return {
+		"name": doc.name,
+		"employee": employee,
+		"time": str(doc.time),
+		"checkin_time": checkin_time,
+	}
+
+
+@frappe.whitelist()
+def delete_employee_checkin_e2e_fixture(name: str) -> dict[str, Any]:
+	"""Remove development-only Employee Checkin fixture."""
+	_require_e2e()
+	if not name or not frappe.db.exists("Employee Checkin", name):
+		return {"deleted": False, "name": name}
+	doc = frappe.get_doc("Employee Checkin", name)
+	if doc.device_id != "PC-E2E":
+		frappe.throw(_("Refusing to delete non-E2E Employee Checkin"))
+	frappe.delete_doc("Employee Checkin", name, ignore_permissions=True, force=True)
+	frappe.db.commit()
+	return {"deleted": True, "name": name}
+
+
 @frappe.whitelist()
 def get_calendar_e2e_debug_state() -> dict[str, Any]:
 	"""Server-side calendar state for E2E failure dumps."""
