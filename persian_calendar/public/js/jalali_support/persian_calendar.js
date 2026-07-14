@@ -1464,7 +1464,26 @@ class JalaliDatepicker {
           }
         }, 0);
       });
-      
+
+      // Manual typing: Jalali-mode inputs skip Frappe's bind_change_event, so
+      // commit typed values (incl. shorthand like 14050120 / 0120) here.
+      this.$input.on("change" + ns, function () {
+        if (!shouldUseJalaliCalendar() || self._isApplyingValue) {
+          return;
+        }
+        self.commitTypedInput();
+      });
+      this.$input.on("keydown" + ns, function (e) {
+        if (e.which !== 13 || !shouldUseJalaliCalendar() || self._isApplyingValue) {
+          return;
+        }
+        if (self.commitTypedInput()) {
+          e.preventDefault();
+          e.stopPropagation();
+          self.close();
+        }
+      });
+
       // Month/Year navigation
       this.$calendar.find('.prev-btn').on('click', function(e) {
         e.preventDefault();
@@ -1630,7 +1649,12 @@ class JalaliDatepicker {
           self.close();
           return;
         }
-        if (e.keyCode === 13 && self.isOpen && self.selectedDate) {
+        if (e.keyCode === 13 && self.isOpen) {
+          // Typed text wins over the stale picker selection (manual entry / shorthand).
+          self.syncSelectionFromTypedInput();
+          if (!self.selectedDate) {
+            return;
+          }
           e.preventDefault();
           e.stopPropagation();
           self.applySelectedValue(true);
@@ -2334,6 +2358,48 @@ class JalaliDatepicker {
         this.currentDate.jm++;
       }
       this.updateCalendar();
+    }
+
+    /** Read typed input (incl. shorthand like 14050120 / 0120) into selectedDate/selectedTime. */
+    syncSelectionFromTypedInput() {
+      const raw = String(this.$input.val() || "").trim();
+      if (!raw) {
+        return false;
+      }
+      if (this.isDateTime) {
+        const p = parseJalaliDateTime(raw);
+        if (!p) {
+          return false;
+        }
+        this.selectedDate = { jy: p.jy, jm: p.jm, jd: p.jd };
+        this.currentDate = { jy: p.jy, jm: p.jm, jd: p.jd };
+        this.selectedTime = {
+          hour: p.hour || 0,
+          minute: p.minute || 0,
+          second: p.second || 0,
+        };
+        return true;
+      }
+      const p = parseJalaliDate(raw);
+      if (!p) {
+        return false;
+      }
+      this.selectedDate = { jy: p.jy, jm: p.jm, jd: p.jd };
+      this.currentDate = { jy: p.jy, jm: p.jm, jd: p.jd };
+      return true;
+    }
+
+    /** Commit manually typed text to the model; true when it parsed and was applied. */
+    commitTypedInput() {
+      if (!this.syncSelectionFromTypedInput()) {
+        return false;
+      }
+      this.applySelectedValue(true);
+      if (this.isOpen) {
+        this.view = "days";
+        this.updateCalendar();
+      }
+      return true;
     }
 
     syncInputFromModel() {
