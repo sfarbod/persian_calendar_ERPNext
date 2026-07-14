@@ -68,6 +68,55 @@
     return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   }
 
+  const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+  const ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+
+  function toAsciiDigits(text) {
+    return String(text).replace(/[۰-۹٠-٩]/g, (ch) => {
+      const i = PERSIAN_DIGITS.indexOf(ch);
+      return String(i !== -1 ? i : ARABIC_DIGITS.indexOf(ch));
+    });
+  }
+
+  function currentJalaliYear() {
+    try {
+      return toJalaliPartsFromGregorianDate(new Date()).jy;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * Expand typed shorthand to ISO-like form before parsing:
+   *   "۱۴۰۵/۰۱/۲۰" → "1405-01-20"  (digit translation + year-first separators)
+   *   "14050120"   → "1405-01-20"  (YYYYMMDD)
+   *   "0120"       → "<current jy>-01-20"  (MMDD, Jalali UI only)
+   * Optional trailing " HH:mm[:ss]" is preserved. Non-matching input is
+   * returned with digits translated only.
+   */
+  function expandDateInputShorthand(value) {
+    if (value == null || value === "") return value;
+    let s = toAsciiDigits(String(value).trim());
+    s = s.replace(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})/, "$1-$2-$3");
+    const m = /^(\d{4}|\d{8})(\s+\d{1,2}:\d{2}(?::\d{2})?)?$/.exec(s);
+    if (!m) return s;
+    const digits = m[1];
+    const time = m[2] || "";
+    let y, mo, d;
+    if (digits.length === 8) {
+      y = parseInt(digits.slice(0, 4), 10);
+      mo = parseInt(digits.slice(4, 6), 10);
+      d = parseInt(digits.slice(6, 8), 10);
+    } else {
+      if (!jalaliUiActive()) return s;
+      y = currentJalaliYear();
+      mo = parseInt(digits.slice(0, 2), 10);
+      d = parseInt(digits.slice(2, 4), 10);
+    }
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return s;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}${time}`;
+  }
+
   /** Parse YYYY-MM-DD[ HH:mm[:ss][.fraction]] — no Date() on full string. */
   function parseDateTimeParts(value) {
     const s = stripMicroseconds(value);
@@ -130,7 +179,7 @@
     if (value == null || value === "") {
       return null;
     }
-    const str = stripMicroseconds(String(value).trim());
+    const str = expandDateInputShorthand(stripMicroseconds(String(value).trim()));
     if (!str) {
       return null;
     }
@@ -372,7 +421,7 @@
 
   function normalizeModelDate(value) {
     if (value == null || value === "") return value;
-    const str = stripMicroseconds(String(value).trim());
+    const str = expandDateInputShorthand(stripMicroseconds(String(value).trim()));
     const spaceIdx = str.indexOf(" ");
     const datePart = spaceIdx === -1 ? str : str.slice(0, spaceIdx);
     let timePart = spaceIdx === -1 ? "" : str.slice(spaceIdx + 1);
@@ -430,6 +479,8 @@
     normalizeModelDate,
     normalizeModelDateTime,
     coerceToGregorianDateTime,
+    expandDateInputShorthand,
+    toAsciiDigits,
     valueToJalaliDisplay,
     looksLikeGregorianUserDisplay,
     formatJalaliParts,
