@@ -8,6 +8,8 @@ How to extend the framework with a new ERPNext adapter **without** changing
 | Architecture  | `docs/ARCHITECTURE_BUSINESS_CALENDAR.md` |
 | Upgrade       | `docs/UPGRADE_GUIDE.md` |
 | API reference | `docs/API_REFERENCE.md` |
+| CRM Display | `docs/CRM_DISPLAY_CALENDAR.md` (Phase 5A-2 — no BC adapters) |
+| Conversion | `docs/TOSHAMSHI.md` |
 
 ---
 

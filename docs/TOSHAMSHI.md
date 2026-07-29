@@ -21,6 +21,10 @@ Storage remains Gregorian/ISO. Do **not** use this function for:
 - Company Business Calendar resolution
 - User Display Calendar preference (Desk formatters)
 
+CRM Desk forms/lists inherit Display Calendar automatically (Phase 5A-2 —
+[`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md)). Use `toshamshi` in CRM
+Print/email templates when explicit Jalali output is required.
+
 ---
 
 ## 2. Canonical implementation path

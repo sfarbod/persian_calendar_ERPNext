@@ -83,6 +83,10 @@ Symbols not listed here are internal unless documented otherwise.
 Implementation: `persian_calendar.utils.jalali` (single algorithm).  
 See [`TOSHAMSHI.md`](TOSHAMSHI.md). These are **not** Business Calendar period APIs.
 
+CRM Desk Date/Datetime presentation uses the global Display Calendar (see
+[`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md)), not these helpers, unless
+a Print/email template explicitly calls them.
+
 ---
 
 See `docs/SDK.md` for extension workflow.

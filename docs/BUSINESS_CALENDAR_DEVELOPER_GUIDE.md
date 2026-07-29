@@ -589,7 +589,18 @@ assert toshamsi is toshamshi
 3. Canonical docs: [`TOSHAMSHI.md`](TOSHAMSHI.md).
 4. Legacy path `persian_calendar.utils.jalali.toshamshi` remains supported.
 
-**Recipes count: 11**
+### Recipe L — CRM Display Calendar (Phase 5A-2)
+
+CRM Date/Datetime forms, lists, and report filters inherit the global desk
+Display Calendar. No CRM-specific display adapter is required.
+
+1. Prefer standard Date/Datetime fieldtypes (do not stringify dates as Data).
+2. For Print/PDF Jalali regardless of viewer: `{{ toshamsi(doc.field) }}`.
+3. Do **not** treat Sales Pipeline English month labels as Display Calendar —
+   that is Business Calendar work (Phase 5A-3).
+4. See [`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md).
+
+**Recipes count: 12**
 
 ---
 

@@ -144,9 +144,16 @@ Treat `FAIL` as a hard CI failure. Treat `WARNING` as optional fail (recommended
 | [`SDK.md`](SDK.md) | Phase 4b public API / adapter workflow |
 | [`API_REFERENCE.md`](API_REFERENCE.md) | `persian_calendar.api` symbols |
 | [`TOSHAMSHI.md`](TOSHAMSHI.md) | Canonical Jalali conversion (`toshamshi` / `toshamsi`) |
+| [`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md) | CRM Display Calendar coverage (Phase 5A-2) |
 
 ### Print Format conversion guard (Phase 5A-1)
 
 `release_check` includes a **conversion_api** check. Missing `toshamshi` /
 `toshamsi` (or a broken Jinja module hook) is a **FAIL** because Print Formats
 depend on them. This is independent of Business Calendar patch health.
+
+### CRM Display (Phase 5A-2)
+
+CRM typed Date/Datetime surfaces inherit global desk Display Calendar. Registry
+status: `display_covered`. Do not confuse Pipeline month **labels** with Display
+Calendar — Business Calendar for CRM remains deferred.
