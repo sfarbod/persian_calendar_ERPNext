@@ -229,6 +229,66 @@ class TestJalaliProvider(unittest.TestCase):
 		self.assertEqual(result, _j_to_g(1405, 2, 1))
 
 
+class TestJalaliProviderLeapAndEdge(unittest.TestCase):
+	"""Additional edge cases for hardening."""
+
+	def setUp(self):
+		self.cal = JalaliCalendarProvider()
+
+	def test_leap_esfand_add_years_to_non_leap(self):
+		# 1403-12-30 (leap Esfand) + 1 year → 1404-12-29 (non-leap clamp)
+		start = _j_to_g(1403, 12, 30)
+		result = self.cal.add_years(start, 1)
+		self.assertEqual(result, _j_to_g(1404, 12, 29))
+
+	def test_leap_esfand_preserve_month_end_across_years(self):
+		# 1403-12-30 (last day, leap) + 1 year PRESERVE → 1404-12-29 (last day, non-leap)
+		start = _j_to_g(1403, 12, 30)
+		self.assertTrue(self.cal.is_month_end(start))
+		result = self.cal.add_years(start, 1, last_day_policy=LastDayPolicy.PRESERVE_MONTH_END)
+		self.assertEqual(result, _j_to_g(1404, 12, 29))
+		self.assertTrue(self.cal.is_month_end(result))
+
+	def test_negative_months_across_year(self):
+		# 1405-01-01 - 1 month → 1404-12-01
+		start = _j_to_g(1405, 1, 1)
+		self.assertEqual(self.cal.add_months(start, -1), _j_to_g(1404, 12, 1))
+
+	def test_negative_months_large(self):
+		# 1405-03-15 - 15 months → 1403-12-15
+		start = _j_to_g(1405, 3, 15)
+		self.assertEqual(self.cal.add_months(start, -15), _j_to_g(1403, 12, 15))
+
+	def test_period_calendar_system(self):
+		g = _j_to_g(1405, 1, 15)
+		p = self.cal.period(g, PeriodGrain.MONTHLY)
+		self.assertEqual(p.calendar_system, "Jalali")
+
+	def test_gregorian_period_calendar_system(self):
+		g = GregorianCalendarProvider()
+		p = g.period(date(2026, 3, 15), PeriodGrain.MONTHLY)
+		self.assertEqual(p.calendar_system, "Gregorian")
+
+	def test_is_year_end_leap(self):
+		# 1403-12-30 is last day of leap year
+		self.assertTrue(self.cal.is_year_end(_j_to_g(1403, 12, 30)))
+		self.assertFalse(self.cal.is_year_end(_j_to_g(1403, 12, 29)))
+
+	def test_is_year_end_non_leap(self):
+		# 1404-12-29 is last day of non-leap year
+		self.assertTrue(self.cal.is_year_end(_j_to_g(1404, 12, 29)))
+
+	def test_next_occurrence_quarterly(self):
+		start = _j_to_g(1405, 1, 1)
+		nxt = self.cal.next_occurrence(start, Frequency.QUARTERLY)
+		self.assertEqual(nxt, _j_to_g(1405, 4, 1))
+
+	def test_previous_occurrence_monthly(self):
+		start = _j_to_g(1405, 3, 1)
+		prev = self.cal.previous_occurrence(start, Frequency.MONTHLY)
+		self.assertEqual(prev, _j_to_g(1405, 2, 1))
+
+
 class TestCalendarEngineForCalendar(unittest.TestCase):
 	def test_for_calendar_names(self):
 		from persian_calendar.calendar.engine import CalendarEngine

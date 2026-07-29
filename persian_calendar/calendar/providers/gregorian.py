@@ -135,6 +135,7 @@ class GregorianCalendarProvider(CalendarProvider):
 				year=src.year,
 				period_number=src.month,
 				key=f"{src.year:04d}-{src.month:02d}",
+				calendar_system="Gregorian",
 			)
 
 		if grain == PeriodGrain.QUARTERLY:
@@ -149,6 +150,7 @@ class GregorianCalendarProvider(CalendarProvider):
 				year=src.year,
 				period_number=q,
 				key=f"{src.year:04d}-Q{q}",
+				calendar_system="Gregorian",
 			)
 
 		if grain == PeriodGrain.HALF_YEARLY:
@@ -163,6 +165,7 @@ class GregorianCalendarProvider(CalendarProvider):
 				year=src.year,
 				period_number=h,
 				key=f"{src.year:04d}-H{h}",
+				calendar_system="Gregorian",
 			)
 
 		if grain == PeriodGrain.YEARLY:
@@ -175,6 +178,7 @@ class GregorianCalendarProvider(CalendarProvider):
 				year=src.year,
 				period_number=1,
 				key=f"{src.year:04d}",
+				calendar_system="Gregorian",
 			)
 
 		raise ValueError(f"Unsupported period grain: {grain}")

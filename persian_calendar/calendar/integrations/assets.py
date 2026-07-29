@@ -185,6 +185,29 @@ class PersianCalendarAssetDepreciationSchedule(BusinessCalendarDateMixin, AssetD
 			self.current_fiscal_year_end_date = self._bc_add_years(self.current_fiscal_year_end_date, 1)
 			self.fiscal_year_changed = True
 
+	def get_fiscal_year(self, d):
+		"""Business-calendar-aware fallback when no FY record exists."""
+		from frappe.utils import add_days as frappe_add_days
+		from frappe.utils import nowdate
+
+		from erpnext.accounts.utils import get_fiscal_year
+
+		fy = get_fiscal_year(d, as_dict=True, raise_on_missing=False)
+		if fy:
+			return fy.year_start_date, fy.year_end_date
+
+		current_fy = get_fiscal_year(nowdate(), as_dict=True)
+		months = self._bc_month_diff(current_fy.year_start_date, d)
+		if months % 12:
+			years = months // 12
+		else:
+			years = months // 12 - 1
+
+		fy_start_date = self._bc_add_years(current_fy.year_start_date, years)
+		fy_end_date = frappe_add_days(self._bc_add_years(fy_start_date, 1), -1)
+
+		return fy_start_date, fy_end_date
+
 	def get_next_schedule_date(self, row_idx):
 		schedule_date = self._bc_add_months(
 			self.fb_row.depreciation_start_date,

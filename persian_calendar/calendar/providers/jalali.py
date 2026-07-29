@@ -167,6 +167,7 @@ class JalaliCalendarProvider(CalendarProvider):
 				year=j.year,
 				period_number=j.month,
 				key=f"{j.year:04d}-{j.month:02d}",
+				calendar_system="Jalali",
 			)
 
 		if grain == PeriodGrain.QUARTERLY:
@@ -184,6 +185,7 @@ class JalaliCalendarProvider(CalendarProvider):
 				year=j.year,
 				period_number=q,
 				key=f"{j.year:04d}-Q{q}",
+				calendar_system="Jalali",
 			)
 
 		if grain == PeriodGrain.HALF_YEARLY:
@@ -201,6 +203,7 @@ class JalaliCalendarProvider(CalendarProvider):
 				year=j.year,
 				period_number=h,
 				key=f"{j.year:04d}-H{h}",
+				calendar_system="Jalali",
 			)
 
 		if grain == PeriodGrain.YEARLY:
@@ -213,6 +216,7 @@ class JalaliCalendarProvider(CalendarProvider):
 				year=j.year,
 				period_number=1,
 				key=f"{j.year:04d}",
+				calendar_system="Jalali",
 			)
 
 		raise ValueError(f"Unsupported period grain: {grain}")

@@ -70,6 +70,9 @@ class Period:
 	- Jalali monthly: ``1405-01``
 	- Gregorian quarterly: ``2026-Q1``
 	- Jalali yearly: ``1405``
+
+	``calendar_system`` identifies which provider produced this period (``"Gregorian"``
+	or ``"Jalali"``). Downstream consumers should never localize the key.
 	"""
 
 	start: date
@@ -78,3 +81,4 @@ class Period:
 	year: int
 	period_number: int
 	key: str
+	calendar_system: str = "Gregorian"
