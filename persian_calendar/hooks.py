@@ -137,9 +137,15 @@ jinja = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Asset Depreciation Schedule": (
+		"persian_calendar.calendar.integrations.assets.PersianCalendarAssetDepreciationSchedule"
+	),
+	"Asset": "persian_calendar.calendar.integrations.assets.PersianCalendarAsset",
+	"Asset Shift Allocation": (
+		"persian_calendar.calendar.integrations.assets.PersianCalendarAssetShiftAllocation"
+	),
+}
 
 # Document Events
 # ---------------
@@ -149,7 +155,10 @@ doc_events = {
 	"*": {
 		"before_validate": "persian_calendar.jalali_support.datetime_normalizer.normalize_doc_datetimes",
 		"validate": "persian_calendar.jalali_support.datetime_normalizer.normalize_doc_datetimes",
-	}
+	},
+	"Company": {
+		"on_update": "persian_calendar.jalali_support.doctype.custom_field.business_calendar.on_company_update",
+	},
 }
 
 # Scheduled Tasks
@@ -259,10 +268,11 @@ desktop_items = ["jalali_settings"]
 # Request Events
 # ----------------
 before_request = [
-    "persian_calendar.jalali_support.formatters.setup_jalali_formatters",
-    "persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override",
-    "persian_calendar.jalali_support.template_hooks.apply_template_patches",
-    "persian_calendar.jalali_support.data_import_export.apply_data_import_export_patches",
+	"persian_calendar.jalali_support.formatters.setup_jalali_formatters",
+	"persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override",
+	"persian_calendar.jalali_support.template_hooks.apply_template_patches",
+	"persian_calendar.jalali_support.data_import_export.apply_data_import_export_patches",
+	"persian_calendar.calendar.integrations.assets.apply_asset_disposal_patch",
 ]
 
 # Install/Uninstall Events
@@ -270,11 +280,14 @@ before_request = [
 after_install = [
 	"persian_calendar.jalali_support.doctype.custom_field.calendar_preference.create_calendar_preference_field",
 	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.create_data_import_export_fields",
+	"persian_calendar.jalali_support.doctype.custom_field.business_calendar.create_business_calendar_field",
 ]
 after_migrate = [
 	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.create_data_import_export_fields",
+	"persian_calendar.jalali_support.doctype.custom_field.business_calendar.create_business_calendar_field",
 ]
 after_uninstall = [
 	"persian_calendar.jalali_support.doctype.custom_field.calendar_preference.remove_calendar_preference_field",
 	"persian_calendar.jalali_support.doctype.custom_field.data_import_export_fields.remove_data_import_export_fields",
+	"persian_calendar.jalali_support.doctype.custom_field.business_calendar.remove_business_calendar_field",
 ]
