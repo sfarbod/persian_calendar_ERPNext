@@ -189,7 +189,7 @@ scheduler_events = {
 # Testing
 # -------
 
-# before_tests = "persian_calendar.install.before_tests"
+before_tests = "persian_calendar.calendar.patches.before_tests_calendar_bootstrap"
 
 # Overriding Methods
 # ------------------------------
@@ -221,7 +221,9 @@ scheduler_events = {
 
 # Job Events
 # ----------
-# before_job = ["persian_calendar.utils.before_job"]
+before_job = [
+	"persian_calendar.calendar.patches.before_job_calendar_bootstrap",
+]
 # after_job = ["persian_calendar.utils.after_job"]
 
 # User Data Protection
@@ -273,6 +275,7 @@ before_request = [
 	"persian_calendar.jalali_support.template_hooks.apply_template_patches",
 	"persian_calendar.jalali_support.data_import_export.apply_data_import_export_patches",
 	"persian_calendar.calendar.integrations.assets.apply_asset_disposal_patch",
+	"persian_calendar.calendar.patches.before_request_calendar_bootstrap",
 ]
 
 # Install/Uninstall Events
