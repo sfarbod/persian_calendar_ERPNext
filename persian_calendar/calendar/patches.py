@@ -47,16 +47,29 @@ GET_PERIOD_LIST_CONSUMERS: tuple[str, ...] = (
 )
 
 FS_MODULE_PATH = "erpnext.accounts.report.financial_statements"
+MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribution"
+
+# Verified importers of get_periodwise_distribution_data
+MD_PERIODWISE_CONSUMERS: tuple[str, ...] = (
+	"erpnext.selling.report.sales_partner_target_variance_based_on_item_group.item_group_wise_sales_target_variance",
+)
 
 
 @dataclass
 class PatchState:
-	"""Process-local status for the get_period_list compatibility patch."""
+	"""Process-local status for Calendar Framework compatibility patches."""
 
 	status: PatchStatus = PatchStatus.NOT_ATTEMPTED
+	# Financial Statements get_period_list
 	original_get_period_list: Callable[..., Any] | None = None
 	adapter_get_period_list: Callable[..., Any] | None = None
 	rebound_modules: list[str] = field(default_factory=list)
+	# Monthly Distribution free functions
+	original_get_periodwise_distribution_data: Callable[..., Any] | None = None
+	adapter_get_periodwise_distribution_data: Callable[..., Any] | None = None
+	original_get_percentage: Callable[..., Any] | None = None
+	adapter_get_percentage: Callable[..., Any] | None = None
+	md_rebound_modules: list[str] = field(default_factory=list)
 	last_error: str | None = None
 
 
@@ -69,28 +82,70 @@ def get_patch_state() -> PatchState:
 
 
 def reset_calendar_patches_for_tests() -> None:
-	"""Restore stock get_period_list and clear process state (tests only)."""
+	"""Restore stock functions and clear process state (tests only)."""
 	global _state
 	if _state.original_get_period_list is not None:
 		fs_mod = sys.modules.get(FS_MODULE_PATH)
 		if fs_mod is not None and _state.adapter_get_period_list is not None:
 			if getattr(fs_mod, "get_period_list", None) is _state.adapter_get_period_list:
 				fs_mod.get_period_list = _state.original_get_period_list
-			_restore_consumers_to_original(_state.original_get_period_list, _state.adapter_get_period_list)
+			_restore_attr_consumers(
+				_state.original_get_period_list,
+				_state.adapter_get_period_list,
+				"get_period_list",
+				GET_PERIOD_LIST_CONSUMERS,
+			)
+	if _state.original_get_periodwise_distribution_data is not None:
+		md_mod = sys.modules.get(MD_MODULE_PATH)
+		if md_mod is not None and _state.adapter_get_periodwise_distribution_data is not None:
+			if (
+				getattr(md_mod, "get_periodwise_distribution_data", None)
+				is _state.adapter_get_periodwise_distribution_data
+			):
+				md_mod.get_periodwise_distribution_data = (
+					_state.original_get_periodwise_distribution_data
+				)
+			if (
+				_state.adapter_get_percentage is not None
+				and getattr(md_mod, "get_percentage", None) is _state.adapter_get_percentage
+			):
+				md_mod.get_percentage = _state.original_get_percentage
+			_restore_attr_consumers(
+				_state.original_get_periodwise_distribution_data,
+				_state.adapter_get_periodwise_distribution_data,
+				"get_periodwise_distribution_data",
+				MD_PERIODWISE_CONSUMERS,
+			)
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
+	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
 
-	fs_adapter_mod._original_get_period_list = None  # noqa: SLF001 — test reset
+	fs_adapter_mod._original_get_period_list = None  # noqa: SLF001
+	md_adapter_mod._original_get_periodwise_distribution_data = None  # noqa: SLF001
+	md_adapter_mod._original_get_percentage = None  # noqa: SLF001
 	_state = PatchState()
 
 
 def apply_calendar_patches() -> PatchStatus:
 	"""Apply all Calendar Framework compatibility patches for this process.
 
+	Phase 3a: Financial Statements ``get_period_list``.
+	Phase 3b: Monthly Distribution ``get_periodwise_distribution_data`` / ``get_percentage``.
+
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
 	"""
-	return _apply_get_period_list_patch()
+	fs_status = _apply_get_period_list_patch()
+	if fs_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		return fs_status
 
+	md_status = _apply_monthly_distribution_patch()
+	if md_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = md_status
+		return md_status
+
+	_state.status = PatchStatus.APPLIED
+	_state.last_error = None
+	return PatchStatus.APPLIED
 
 def _apply_get_period_list_patch() -> PatchStatus:
 	global _state
@@ -148,52 +203,147 @@ def _apply_get_period_list_patch() -> PatchStatus:
 	_state.rebound_modules = list(dict.fromkeys(_state.rebound_modules + rebound))
 
 	# Verify known loaded consumers no longer hold the stock function
-	still_stock = _loaded_known_consumers_still_on_original(original)
+	still_stock = _loaded_known_consumers_still_on_original(
+		original, "get_period_list", GET_PERIOD_LIST_CONSUMERS
+	)
 	if still_stock:
 		_state.status = PatchStatus.PARTIAL_REBIND
-		_state.last_error = f"Failed to rebind consumers: {', '.join(still_stock)}"
+		_state.last_error = f"Failed to rebind get_period_list consumers: {', '.join(still_stock)}"
 		logger.error(_state.last_error)
 		return _state.status
 
-	_state.status = PatchStatus.APPLIED
-	_state.last_error = None
 	if rebound:
-		logger.info(
-			"Calendar get_period_list patch applied; rebound: %s",
-			", ".join(rebound),
-		)
+		logger.info("Calendar get_period_list patch applied; rebound: %s", ", ".join(rebound))
 	else:
 		logger.info("Calendar get_period_list patch applied (no preloaded consumers to rebind)")
-	return _state.status
+	return PatchStatus.APPLIED
+
+
+def _apply_monthly_distribution_patch() -> PatchStatus:
+	"""Patch Monthly Distribution free functions used by sales target reports."""
+	global _state
+
+	from persian_calendar.calendar.integrations.monthly_distribution import (
+		get_percentage as md_get_percentage,
+	)
+	from persian_calendar.calendar.integrations.monthly_distribution import (
+		get_periodwise_distribution_data as md_periodwise,
+	)
+	from persian_calendar.calendar.integrations.monthly_distribution import set_original_md_functions
+
+	if (
+		_state.original_get_periodwise_distribution_data is not None
+		and _state.adapter_get_periodwise_distribution_data is md_periodwise
+	):
+		md_mod = sys.modules.get(MD_MODULE_PATH)
+		if md_mod is not None and getattr(md_mod, "get_periodwise_distribution_data", None) is md_periodwise:
+			rebound = _rebind_named_consumers(
+				_state.original_get_periodwise_distribution_data,
+				md_periodwise,
+				"get_periodwise_distribution_data",
+				MD_PERIODWISE_CONSUMERS,
+				MD_MODULE_PATH,
+			)
+			for name in rebound:
+				if name not in _state.md_rebound_modules:
+					_state.md_rebound_modules.append(name)
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.accounts.doctype.monthly_distribution.monthly_distribution as md_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext monthly_distribution unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current_pw = md_mod.get_periodwise_distribution_data
+	current_pct = md_mod.get_percentage
+
+	if _state.original_get_periodwise_distribution_data is None:
+		if current_pw is md_periodwise:
+			_state.last_error = (
+				"get_periodwise_distribution_data is already the adapter but original "
+				"was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_get_periodwise_distribution_data = current_pw
+		_state.original_get_percentage = current_pct
+
+	original_pw = _state.original_get_periodwise_distribution_data
+	original_pct = _state.original_get_percentage
+	_state.adapter_get_periodwise_distribution_data = md_periodwise
+	_state.adapter_get_percentage = md_get_percentage
+
+	set_original_md_functions(original_pw, original_pct)
+
+	if current_pw is not md_periodwise:
+		md_mod.get_periodwise_distribution_data = md_periodwise
+	if current_pct is not md_get_percentage:
+		md_mod.get_percentage = md_get_percentage
+
+	rebound = _rebind_named_consumers(
+		original_pw,
+		md_periodwise,
+		"get_periodwise_distribution_data",
+		MD_PERIODWISE_CONSUMERS,
+		MD_MODULE_PATH,
+	)
+	_state.md_rebound_modules = list(dict.fromkeys(_state.md_rebound_modules + rebound))
+
+	still = _loaded_known_consumers_still_on_original(
+		original_pw, "get_periodwise_distribution_data", MD_PERIODWISE_CONSUMERS
+	)
+	if still:
+		_state.last_error = f"Failed to rebind MD consumers: {', '.join(still)}"
+		logger.error(_state.last_error)
+		return PatchStatus.PARTIAL_REBIND
+
+	if rebound:
+		logger.info("Calendar MD patch applied; rebound: %s", ", ".join(rebound))
+	else:
+		logger.info("Calendar MD patch applied (no preloaded consumers to rebind)")
+	return PatchStatus.APPLIED
 
 
 def _rebind_get_period_list_consumers(
 	original: Callable[..., Any],
 	adapter: Callable[..., Any],
 ) -> list[str]:
-	"""Rebind ``get_period_list`` only where the attribute is the original stock function."""
+	return _rebind_named_consumers(
+		original, adapter, "get_period_list", GET_PERIOD_LIST_CONSUMERS, FS_MODULE_PATH
+	)
+
+
+def _rebind_named_consumers(
+	original: Callable[..., Any],
+	adapter: Callable[..., Any],
+	attr_name: str,
+	known_consumers: tuple[str, ...],
+	source_module: str,
+) -> list[str]:
+	"""Rebind ``attr_name`` only where the attribute is the original stock function."""
 	rebound: list[str] = []
 
-	for mod_name in GET_PERIOD_LIST_CONSUMERS:
+	for mod_name in known_consumers:
 		mod = sys.modules.get(mod_name)
 		if mod is None:
 			continue
-		if _rebind_module_attr(mod, original, adapter):
+		if _rebind_module_attr(mod, original, adapter, attr_name):
 			rebound.append(mod_name)
 
-	# Restricted fallback: any already-loaded erpnext.* module holding the stock object
 	for mod_name, mod in list(sys.modules.items()):
 		if not mod_name.startswith("erpnext."):
 			continue
-		if mod_name == FS_MODULE_PATH:
+		if mod_name == source_module:
 			continue
-		if mod_name in GET_PERIOD_LIST_CONSUMERS:
+		if mod_name in known_consumers:
 			continue
 		if not isinstance(mod, ModuleType):
 			continue
-		if _rebind_module_attr(mod, original, adapter):
+		if _rebind_module_attr(mod, original, adapter, attr_name):
 			rebound.append(mod_name)
-			logger.info("Rebound unlisted erpnext consumer via identity scan: %s", mod_name)
+			logger.info("Rebound unlisted erpnext consumer via identity scan: %s.%s", mod_name, attr_name)
 
 	return rebound
 
@@ -202,40 +352,45 @@ def _rebind_module_attr(
 	mod: ModuleType,
 	original: Callable[..., Any],
 	adapter: Callable[..., Any],
+	attr_name: str = "get_period_list",
 ) -> bool:
-	"""Replace ``mod.get_period_list`` only if it is the original stock function object."""
-	current = getattr(mod, "get_period_list", None)
+	"""Replace ``mod.<attr_name>`` only if it is the original stock function object."""
+	current = getattr(mod, attr_name, None)
 	if current is None:
 		return False
 	if current is original:
-		mod.get_period_list = adapter
+		setattr(mod, attr_name, adapter)
 		return True
 	return False
 
 
-def _loaded_known_consumers_still_on_original(original: Callable[..., Any]) -> list[str]:
+def _loaded_known_consumers_still_on_original(
+	original: Callable[..., Any],
+	attr_name: str,
+	known_consumers: tuple[str, ...],
+) -> list[str]:
 	still = []
-	for mod_name in GET_PERIOD_LIST_CONSUMERS:
+	for mod_name in known_consumers:
 		mod = sys.modules.get(mod_name)
 		if mod is None:
 			continue
-		if getattr(mod, "get_period_list", None) is original:
+		if getattr(mod, attr_name, None) is original:
 			still.append(mod_name)
 	return still
 
 
-def _restore_consumers_to_original(
+def _restore_attr_consumers(
 	original: Callable[..., Any],
 	adapter: Callable[..., Any],
+	attr_name: str,
+	known_consumers: tuple[str, ...],
 ) -> None:
-	for mod_name in list(GET_PERIOD_LIST_CONSUMERS) + [
-		n for n in sys.modules if n.startswith("erpnext.")
-	]:
+	for mod_name in list(known_consumers) + [n for n in sys.modules if n.startswith("erpnext.")]:
 		mod = sys.modules.get(mod_name)
 		if mod is None or not isinstance(mod, ModuleType):
 			continue
-		if getattr(mod, "get_period_list", None) is adapter:
-			mod.get_period_list = original
+		if getattr(mod, attr_name, None) is adapter:
+			setattr(mod, attr_name, original)
 
 
 # ---------------------------------------------------------------------------

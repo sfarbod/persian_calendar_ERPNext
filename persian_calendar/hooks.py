@@ -145,6 +145,10 @@ override_doctype_class = {
 	"Asset Shift Allocation": (
 		"persian_calendar.calendar.integrations.assets.PersianCalendarAssetShiftAllocation"
 	),
+	"Budget": "persian_calendar.calendar.integrations.budget.PersianCalendarBudget",
+	"Monthly Distribution": (
+		"persian_calendar.calendar.integrations.monthly_distribution.PersianCalendarMonthlyDistribution"
+	),
 }
 
 # Document Events
