@@ -4,9 +4,8 @@
 **Platform:** Frappe **16.28.0** · ERPNext **16.29.0** · `persian_calendar` **1.7.0**  
 **Related:** [`CRM_JALALI_TOSHAMSHI_AUDIT.md`](CRM_JALALI_TOSHAMSHI_AUDIT.md) · [`TOSHAMSHI.md`](TOSHAMSHI.md)
 
-This phase is **Display Calendar only**. It does **not** implement CRM Business
-Calendar period grouping (Sales Pipeline Monthly/Quarterly remains upstream
-Gregorian until Phase 5A-3).
+This phase is **Display Calendar only**. Sales Pipeline **business** period
+grouping is Phase 5A-3 — see [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md).
 
 ---
 
