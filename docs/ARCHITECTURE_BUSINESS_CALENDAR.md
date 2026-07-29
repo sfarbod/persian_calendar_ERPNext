@@ -1,11 +1,11 @@
 # Business Calendar Framework — Architecture Freeze
 
-**Post Phase 3c Technical Reference**
+**Post Phase 3d Technical Reference** (Phases 0 → 3d-2 inclusive; Phase 3 Final hardening)
 
 | Field | Value |
 |-------|--------|
 | Status | **Frozen** (official technical architecture reference) |
-| Scope | Phases 0 → 3c inclusive |
+| Scope | Phases 0 → 3d-2 inclusive |
 | App | `persian_calendar` |
 | App version (at freeze) | `1.7.0` |
 | Document path | `docs/ARCHITECTURE_BUSINESS_CALENDAR.md` |
@@ -18,7 +18,7 @@
 | ERPNext | **16.29.0** (`version-16`) | Source audit and framework tests |
 | Python (runtime) | **3.14.2** | Bench `env` interpreter |
 | Python (declared) | **≥ 3.10** | `pyproject.toml` `requires-python` |
-| `persian_calendar` | **1.7.0** @ `b1556bd` | Branch `develop` |
+| `persian_calendar` | **1.7.0** | Branch `develop` |
 
 ### Approved commits
 
@@ -29,6 +29,10 @@
 | `78b846b` | Phase 3a: Business Period Engine + Financial Statements lifecycle |
 | `06ec2b0` | Phase 3b: Budget + Monthly Distribution |
 | `b1556bd` | Phase 3c: Budget Variance + Trends |
+| `b796e03` | Architecture Freeze document |
+| `e23f6e1` | Business Calendar Developer Guide |
+| `53d96a9` | Phase 3d-1: Sales + Purchase Analytics |
+| `8c34252` | Phase 3d-2: Stock Analytics + manufacturing helper rebinds |
 
 ---
 
@@ -261,7 +265,7 @@ Replacing only the source module attribute does not update modules that already 
 
 Single central entry in `persian_calendar.calendar.patches`. Idempotent when successfully applied; retries after `SOURCE_UNAVAILABLE`, `PARTIAL_REBIND`, or `FAILED`.
 
-**Targets registered in the applicator (post-Phase 3c):**
+**Targets registered in the applicator (post-Phase 3d-2):**
 
 | Target | Source module | Adapter |
 |--------|---------------|---------|
@@ -269,6 +273,10 @@ Single central entry in `persian_calendar.calendar.patches`. Idempotent when suc
 | `get_periodwise_distribution_data` / `get_percentage` | `erpnext.accounts.doctype.monthly_distribution.monthly_distribution` | `integrations.monthly_distribution` |
 | `get_period_date_ranges` | `erpnext.controllers.trends` | `integrations.trends.get_period_date_ranges` |
 | `execute` | `erpnext.accounts.report.budget_variance_report.budget_variance_report` | `integrations.budget_variance.execute` |
+| `Analytics` methods | `erpnext.selling.report.sales_analytics.sales_analytics` | `integrations.sales_analytics` (covers Purchase Analytics) |
+| `get_period_date_ranges` / `get_period` / `get_period_columns` | `erpnext.stock.report.stock_analytics.stock_analytics` | `integrations.stock_analytics` |
+
+Stock Analytics consumers rebound by identity: Production Analytics, Work Order Summary, Job Card Summary (`STOCK_ANALYTICS_PERIOD_CONSUMERS`). `round_down_to_nearest_frequency` is captured but **not** replaced (module-global safety for Gregorian delegation).
 
 **Separate from the central applicator (Phase 2):**
 
@@ -294,10 +302,10 @@ Single central entry in `persian_calendar.calendar.patches`. Idempotent when suc
 
 ### Rebinding
 
-- Known-consumer registries (`GET_PERIOD_LIST_CONSUMERS`, `MD_PERIODWISE_CONSUMERS`, `TRENDS_PERIOD_RANGES_CONSUMERS`).
+- Known-consumer registries (`GET_PERIOD_LIST_CONSUMERS`, `MD_PERIODWISE_CONSUMERS`, `TRENDS_PERIOD_RANGES_CONSUMERS`, `STOCK_ANALYTICS_PERIOD_CONSUMERS`).
 - Replace attribute only when `current is original` (object identity).
-- Restricted `erpnext.*` identity scan for unlisted importers of the same attribute.
-- Unrelated same-named functions (for example `stock_analytics.get_period_date_ranges`) are untouched.
+- Restricted `erpnext.*` identity scan for unlisted importers of the same attribute (FS / MD / Trends). Stock Analytics rebinds **only** the known manufacturing consumers (no broad name scan).
+- Unrelated same-named functions (for example Trends vs Stock `get_period_date_ranges`) are untouched.
 
 ### Hook lifecycle
 
@@ -572,18 +580,18 @@ Labels translate, change with locale, and collide across calendars (for example 
 | Duplicate Budget Distribution periods | BVR `validate_distribution_integrity` | Throw with budget name and dates |
 | Overlapping Budget Distribution periods | BVR integrity | Throw |
 | Missing report period | BVR allocation | Amount `0` — not reassigned to the wrong period |
-| Stale / non–Jalali-month-start boundaries under Jalali BC | `validate_stale_budget_calendar` | Warn only; do not rewrite submitted rows |
+| Stale / non–Jalali-month-start boundaries under Jalali BC | `validate_stale_budget_calendar` helper | **Available but not hooked** into Budget validate/save; tests cover the helper; warn-only semantics if wired later |
 | Periodicity mismatch | BVR `budget_amount_for_period` | See Periodicity Mismatch Policy |
 | Company resolution | Trends / adapters | Explicit company → form → FY links → defaults; never Display Calendar |
 | Invalid Business Calendar name | Engine / resolver | Error or Gregorian normalize per `normalize_business_calendar` |
 | Accounting dimension filters | Stock BVR validate | Unchanged |
-| Consolidated FS mixed calendars | FS adapter helpers | Explicit validation where consolidated companies are supplied |
+| Consolidated FS mixed calendars | FS adapter helpers | Helper exists; not all stock consolidated call paths invoke it automatically |
 
 ---
 
 ## 10. Test Coverage
 
-Verified on site `development.localhost` at architecture freeze finalization:
+Verified on site `development.localhost` at Phase 3 Final hardening:
 
 | Suite | Module | Count |
 |-------|--------|------:|
@@ -596,16 +604,18 @@ Verified on site `development.localhost` at architecture freeze finalization:
 | Monthly Distribution | `persian_calendar.calendar.integrations.test_monthly_distribution` | 14 |
 | Budget Variance | `persian_calendar.calendar.integrations.test_budget_variance` | 18 |
 | Trends | `persian_calendar.calendar.integrations.test_trends` | 19 |
-| **Framework total** | | **162** |
+| Sales / Purchase Analytics | `persian_calendar.calendar.integrations.test_sales_analytics` | 19 |
+| Stock Analytics (+ manufacturing rebinds) | `persian_calendar.calendar.integrations.test_stock_analytics` | 30 |
+| **Framework total** | | **211** |
 
-Coverage themes include Gregorian parity and delegation, Jalali boundaries and leap Esfand, patch identity rebind, Display Calendar independence, Budget Distribution matching, cumulative order, mixed-calendar rejection, and absence of global `formatdate` replacement.
+Coverage themes include Gregorian parity and delegation, Jalali boundaries and leap Esfand, patch identity rebind, Display Calendar independence, Budget Distribution matching, cumulative order, mixed-calendar rejection, Sales/Stock stable keys and carry-forward, and absence of global `formatdate` replacement.
 
 ### Upstream and unrelated tests
 
 | Category | Status |
 |----------|--------|
-| Business Calendar Framework suites (162) | All passed at freeze verification |
-| Installed ERPNext Budget Variance / Trends test modules | Not claimed as a continuous green suite in this freeze; re-run on upgrade |
+| Business Calendar Framework suites (211) | All passed at Phase 3 Final verification |
+| Installed ERPNext Budget Variance / Trends / Stock Analytics modules | Re-run on upgrade; site fixture noise may block discovery |
 | `persian_calendar.utils.test_datetime_coercion` | **2 pre-existing failures** (8 tests run) around `toshamshi` display expectations |
 
 All Business Calendar Framework suites passed. Two pre-existing failures remain in datetime display coercion tests and are not part of the Business Calendar arithmetic framework.
@@ -617,6 +627,7 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | Area | Limitation |
 |------|------------|
 | Console bootstrap | Must call `apply_calendar_patches()` manually |
+| Dual `get_period_list` wrappers | Display `formatters.patch_get_period_list` may run before the BC adapter on `before_request`; Gregorian BC boundaries still delegate, but **labels** may follow Display Calendar until Presentation Layer unifies this |
 | Sales / Purchase Analytics | Implemented (3d-1); see module note |
 | Stock Analytics + manufacturing helper rebinds | Implemented (3d-2); core MRP/MPS not started |
 | Forecast | Not redesigned |
@@ -625,10 +636,12 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | Subscription / Auto Repeat / Maintenance | Not started |
 | CRM / Support analytics | Not started |
 | Trends presentation labels | Date ranges may be Jalali-aware while headers still use Gregorian `%b` |
-| Date Picker / Desk UI | Display layer; outside Phases 0–3c business arithmetic |
+| Date Picker / Desk UI | Display layer; outside Phases 0–3d business arithmetic |
 | Historical migration | No auto-convert of submitted Budget Distribution / schedules when Business Calendar changes |
 | Budget Variance Script Report | No `override_doctype_class`; Jalali requires `execute` patch |
 | Asset disposal patch | Separate from central applicator (intentional Phase 2 narrow patch) |
+| Stale budget calendar helper | Not wired to DocType validate (helper + tests only) |
+| Sales/Stock quarter snap | Small jdatetime first-day snap before engine generate (debt; not a second period engine) |
 
 ---
 
@@ -669,6 +682,7 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | **Purpose** | Sales / Purchase / Stock Analytics period engines on Business Calendar |
 | **Phase 3d-1 (done)** | Sales + Purchase Analytics via `integrations/sales_analytics.py`; Weekly delegates to stock; stable `BusinessPeriod.key` buckets |
 | **Phase 3d-2 (done)** | Stock Analytics free functions + Production / WO / Job Card identity rebinds; carry-forward via stable `get_period` keys |
+| **Phase 3 Final (done)** | Hardening / validation / release readiness — no new modules |
 | **Dependencies** | Period engine + applicator patterns from Phases 3a–3c |
 | **Mechanism** | Dedicated adapters; do not confuse with Trends `get_period_date_ranges` (different functions / contracts) |
 | **Risks** | Multiple same-named helpers; label-as-key charts on WO/JC; SLE balance carry |
@@ -909,11 +923,14 @@ Production upgrades must not proceed if patch status is `partial_rebind`, `faile
 - Dual knowledge of stock Budget Variance (month-name map) versus Jalali date-range path.
 - Asset disposal patch lives outside `apply_calendar_patches` (narrow Phase 2 exception).
 - Analytics same-named `get_period_date_ranges` functions will tempt incorrect patching if registries are not kept strict.
+- Display-layer `formatters.patch_get_period_list` may wrap FS `get_period_list` before the BC adapter (label presentation debt).
+- `validate_stale_budget_calendar` / consolidated FS mixed-calendar helpers are not fully wired to stock save/report paths.
+- Sales/Stock `_snap_jalali_start` still uses small jdatetime quarter/half first-day snaps.
 - `test_datetime_coercion` failures remain noise adjacent to the framework.
 
 ### Suggested future improvements (non-binding)
 
-1. Phase 3d: treat Analytics as new adapters with explicit non-overlap versus Trends.
+1. Unify FS `get_period_list` with Display formatters so Gregorian BC never inherits Display label wrapping (Presentation / Phase 6 adjacent).
 2. Reduce Budget Variance debt if upstream ERPNext ever keys by dates instead of month names.
 3. Optional explicit `company` plumbing into Trends callers where ERPNext allows without breaking stock.
 4. Presentation Phase 6 for Trends labels without touching business keys.
@@ -921,7 +938,7 @@ Production upgrades must not proceed if patch status is `partial_rebind`, `faile
 
 ### Objective verdict
 
-The framework is **fit for frozen use** as the accounting-period foundation for this app: layered correctly, tested at the unit and lifecycle level, and constrained enough to extend without a second architecture. The main cost is **ERPNext free-function patching** and the **Budget Variance dual-path**—acceptable given ERPNext v16 constraints, but they remain the primary long-term maintenance and upgrade risks.
+The framework is **fit for frozen use** through Phase 3d-2 as the accounting-period foundation for this app: layered correctly, tested at the unit and lifecycle level (~211 framework tests), and constrained enough to extend without a second architecture. The main cost is **ERPNext free-function patching** and the **Budget Variance dual-path**—acceptable given ERPNext v16 constraints, but they remain the primary long-term maintenance and upgrade risks. Phase 3 Final assessment: **Ready with caveats** (see `docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md`).
 
 ---
 
@@ -936,5 +953,6 @@ The framework is **fit for frozen use** as the accounting-period foundation for 
 | `docs/budget_variance_trends.md` | Phase 3c Trends / Budget Variance |
 | `docs/sales_purchase_analytics.md` | Phase 3d-1 Sales / Purchase Analytics |
 | `docs/stock_analytics.md` | Phase 3d-2 Stock Analytics + manufacturing rebinds |
+| `docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md` | Phase 3 Final hardening / release readiness |
 
 This Architecture Freeze is the authoritative overview; module docs remain detailed companions.

@@ -149,7 +149,9 @@ are not (unless they fall in another report period).
 | Company calendar change | Does **not** migrate historical submitted rows |
 
 `validate_stale_budget_calendar` may warn when Jalali BC sees non–month-start
-stored dates; it does not mutate data.
+boundaries. The helper is covered by tests but is **not** wired into Budget
+validate/save (Phase 3 Final documentation correction). If invoked, it warns
+only and does not mutate stored dates.
 
 ## Mixed-calendar safety
 

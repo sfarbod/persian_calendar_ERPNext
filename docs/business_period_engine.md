@@ -150,10 +150,11 @@ Calendar Framework
     ├── monthly distribution (Phase 3b)
     ├── trends.get_period_date_ranges (Phase 3c)
     ├── budget_variance.execute (Phase 3c)
-    ├── analytics (later)
+    ├── sales_analytics Analytics methods (Phase 3d-1)
+    ├── stock_analytics helpers + manufacturing rebinds (Phase 3d-2)
     └── ...
 hooks: before_request + before_job + before_tests
 ```
 
-See `docs/budget_variance_trends.md` for Phase 3c. Sales/Purchase/Stock Analytics
-must consume `BusinessPeriodEngine` via thin adapters in the same applicator.
+See `docs/budget_variance_trends.md`, `docs/sales_purchase_analytics.md`,
+`docs/stock_analytics.md`, and `docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md`.

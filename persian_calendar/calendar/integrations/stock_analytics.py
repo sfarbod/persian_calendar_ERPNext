@@ -50,6 +50,7 @@ from persian_calendar.calendar.engine import CalendarEngine
 from persian_calendar.calendar.period_engine import BusinessPeriod, BusinessPeriodEngine
 from persian_calendar.calendar.period_labels import format_period_label
 from persian_calendar.calendar.resolve import (
+	BUSINESS_CALENDAR_GREGORIAN,
 	BUSINESS_CALENDAR_JALALI,
 	get_business_calendar_for_company,
 )
@@ -127,7 +128,7 @@ def _resolve_bc_once(filters) -> str:
 	if cached is not None:
 		return cached
 	company = _company(filters)
-	bc = get_business_calendar_for_company(company) if company else "Gregorian"
+	bc = get_business_calendar_for_company(company) if company else BUSINESS_CALENDAR_GREGORIAN
 	_set_cache(filters, _CTX_BC_RESOLVED, bc)
 	return bc
 

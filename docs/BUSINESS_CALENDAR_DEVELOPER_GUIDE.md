@@ -366,10 +366,10 @@ bench --site <site> set-config allow_tests true
 bench --site <site> run-tests --app persian_calendar --module persian_calendar.calendar.test_period_engine
 # likewise: test_providers, test_resolve, test_patches,
 # integrations.test_assets, test_budget, test_monthly_distribution,
-# test_trends, test_budget_variance
+# test_trends, test_budget_variance, test_sales_analytics, test_stock_analytics
 ```
 
-See Architecture §10 for the verified suite list and unrelated failures policy.
+See Architecture §10 and `docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md` for the verified suite list.
 
 ### Test hygiene
 
@@ -586,6 +586,7 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`budget_variance_trends.md`](budget_variance_trends.md) | Trends / Budget Variance |
 | [`sales_purchase_analytics.md`](sales_purchase_analytics.md) | Sales / Purchase Analytics |
 | [`stock_analytics.md`](stock_analytics.md) | Stock Analytics + manufacturing rebinds |
+| [`BUSINESS_CALENDAR_PHASE3_RELEASE.md`](BUSINESS_CALENDAR_PHASE3_RELEASE.md) | Phase 3 Final release readiness |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---

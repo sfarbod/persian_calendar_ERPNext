@@ -249,6 +249,10 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3d-1: Sales / Purchase Analytics ``Analytics`` methods.
 	Phase 3d-2: Stock Analytics free functions + manufacturing rebinds.
 
+	Registered free-function / method targets (in order):
+	FS ``get_period_list`` → MD periodwise/% → Trends ``get_period_date_ranges``
+	→ BVR ``execute`` → Sales Analytics methods → Stock Analytics helpers.
+
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
 	"""
@@ -325,6 +329,16 @@ def _apply_get_period_list_patch() -> PatchStatus:
 			)
 			logger.error(_state.last_error)
 			return _state.status
+		# Observability: Display-layer formatters may wrap get_period_list before
+		# this applicator runs (hooks order). Capturing that wrapper is safe for
+		# boundaries but may still rewrite labels from Display Calendar on the
+		# Gregorian BC path — see Architecture Known Limitations.
+		if getattr(current, "__name__", "") == "get_period_list_jalali":
+			logger.warning(
+				"Calendar FS patch: capturing Display-label get_period_list wrapper "
+				"as original (formatters ran first); period boundaries remain stock/"
+				"BC-adapter owned, labels may follow Display Calendar"
+			)
 		_state.original_get_period_list = current
 
 	original = _state.original_get_period_list
