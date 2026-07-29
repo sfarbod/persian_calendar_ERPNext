@@ -570,7 +570,26 @@ from persian_calendar.api import (
 3. Register contracts, registry row, and `apply_calendar_patches` wiring.
 4. See `docs/SDK.md` and `calendar/adapter_template.py`.
 
-**Recipes count: 10**
+### Recipe K — Print / Jinja Jalali conversion (Phase 5A-1)
+
+```python
+from persian_calendar.api import toshamshi, toshamsi
+
+toshamshi(doc.posting_date, format="YYYY/MM/DD")
+assert toshamsi is toshamshi
+```
+
+```jinja
+{{ toshamshi(doc.posting_date) }}
+{{ toshamsi(doc.posting_date, include_time=True) }}
+```
+
+1. Use for **display conversion only** (Print / PDF HTML / email / scripts).
+2. Do **not** use for business period boundaries or SQL grouping.
+3. Canonical docs: [`TOSHAMSHI.md`](TOSHAMSHI.md).
+4. Legacy path `persian_calendar.utils.jalali.toshamshi` remains supported.
+
+**Recipes count: 11**
 
 ---
 

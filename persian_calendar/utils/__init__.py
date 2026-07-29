@@ -1,3 +1,3 @@
-from persian_calendar.utils.jalali import to_persian_digits, toshamshi
+from persian_calendar.utils.jalali import to_persian_digits, toshamshi, toshamsi
 
-__all__ = ["toshamshi", "to_persian_digits"]
+__all__ = ["toshamshi", "toshamsi", "to_persian_digits"]

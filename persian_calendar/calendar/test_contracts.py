@@ -63,6 +63,9 @@ class TestErpnextContracts(unittest.TestCase):
 			"stk.get_period_columns",
 			"stk.round_down_to_nearest_frequency",
 			"budget.Budget.get_budget_periods",
+			"api.toshamshi",
+			"api.toshamsi",
+			"utils.jalali.toshamshi",
 		}
 		missing = required - ids
 		self.assertFalse(
@@ -200,8 +203,15 @@ class TestDiagnosticsCommands(unittest.TestCase):
 			"deferred_modules",
 			"technical_debt",
 			"upgrade_risks",
+			"conversion_issues",
 		):
 			self.assertIn(key, payload)
+
+	def test_conversion_api_check_present(self):
+		report = build_report()
+		names = {c.name for c in report.checks}
+		self.assertIn("conversion_api", names)
+		self.assertFalse(report.conversion_issues)
 
 
 if __name__ == "__main__":

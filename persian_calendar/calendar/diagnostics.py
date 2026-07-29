@@ -68,6 +68,8 @@ TECHNICAL_DEBT = (
 	"validate_stale_budget_calendar helper not wired to Budget validate",
 	"Asset disposal patch outside apply_calendar_patches / test reset",
 	"Sales/Stock quarter-half first-day snap still uses small jdatetime helper",
+	"toshamshi: out-of-range month/day strings may overflow via jdatetime (not rejected)",
+	"toshamshi: years 1601–1699 treated as Gregorian (heuristic gap)",
 )
 
 UPGRADE_RISKS = (
@@ -94,6 +96,7 @@ class DiagnosticReport:
 	registry_issues: list[str] = field(default_factory=list)
 	import_issues: list[str] = field(default_factory=list)
 	hierarchy_issues: list[str] = field(default_factory=list)
+	conversion_issues: list[str] = field(default_factory=list)
 	checks: list[CheckItem] = field(default_factory=list)
 
 	@property
@@ -107,6 +110,106 @@ class DiagnosticReport:
 
 def _ensure_patches() -> PatchStatus:
 	return apply_calendar_patches()
+
+
+def validate_public_conversion_api() -> list[str]:
+	"""Ensure canonical toshamshi / toshamsi remain available for Print Formats.
+
+	A missing conversion function is a FAIL-class issue: Jinja Print Formats and
+	third-party callers (e.g. erpnext_extensions) depend on it.
+	"""
+	issues: list[str] = []
+
+	try:
+		jalali = importlib.import_module("persian_calendar.utils.jalali")
+	except ImportError as exc:
+		return [f"persian_calendar.utils.jalali unavailable: {exc}"]
+
+	try:
+		api = importlib.import_module("persian_calendar.api")
+	except ImportError as exc:
+		return [f"persian_calendar.api unavailable: {exc}"]
+
+	for mod_name, mod, attr in (
+		("utils.jalali", jalali, "toshamshi"),
+		("utils.jalali", jalali, "toshamsi"),
+		("api", api, "toshamshi"),
+		("api", api, "toshamsi"),
+	):
+		fn = getattr(mod, attr, None)
+		if fn is None:
+			issues.append(
+				f"{mod_name}.{attr} is missing — Print Formats / Jinja may break. "
+				"Restore the canonical conversion export."
+			)
+		elif not callable(fn):
+			issues.append(f"{mod_name}.{attr} exists but is not callable ({type(fn)!r}).")
+
+	if hasattr(jalali, "toshamshi") and hasattr(jalali, "toshamsi"):
+		if jalali.toshamsi is not jalali.toshamshi:
+			issues.append(
+				"utils.jalali.toshamsi is not an identity alias of toshamshi "
+				"(duplicate conversion algorithm risk)."
+			)
+	if hasattr(api, "toshamshi") and hasattr(api, "toshamsi"):
+		if api.toshamsi is not api.toshamshi:
+			issues.append("api.toshamsi is not an identity alias of api.toshamshi.")
+		if hasattr(jalali, "toshamshi") and api.toshamshi is not jalali.toshamshi:
+			issues.append(
+				"api.toshamshi is not the same callable as utils.jalali.toshamshi "
+				"(duplicate implementation)."
+			)
+
+	# Lightweight independence: conversion module must not pull BusinessPeriodEngine
+	try:
+		path = Path(jalali.__file__).resolve()
+		tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+		forbidden = {"BusinessPeriodEngine", "BusinessPeriod", "get_business_calendar_for_company"}
+		for node in ast.walk(tree):
+			if isinstance(node, ast.ImportFrom):
+				for alias in node.names:
+					if alias.name in forbidden:
+						issues.append(
+							f"utils.jalali imports {alias.name} — conversion must stay "
+							"independent of Business Calendar engines."
+						)
+			elif isinstance(node, ast.Import):
+				for alias in node.names:
+					if "period_engine" in (alias.name or ""):
+						issues.append("utils.jalali imports period_engine — forbidden coupling.")
+	except (OSError, SyntaxError) as exc:
+		issues.append(f"Could not AST-scan utils.jalali for BC coupling: {exc}")
+
+	# Jinja hook must still point at the jalali module (exposes all public functions)
+	try:
+		import frappe
+
+		if getattr(frappe.local, "site", None):
+			hooks = frappe.get_hooks("jinja") or {}
+			methods = hooks.get("methods") or []
+			if "persian_calendar.utils.jalali" not in methods:
+				issues.append(
+					"hooks.jinja.methods no longer includes persian_calendar.utils.jalali — "
+					"Print Format Jinja helpers unavailable."
+				)
+			else:
+				from frappe.utils.jinja import get_jinja_hooks
+
+				method_dict, _filters = get_jinja_hooks()
+				method_dict = method_dict or {}
+				for name in ("toshamshi", "toshamsi"):
+					if name not in method_dict:
+						issues.append(
+							f"Jinja method {name!r} not exposed from persian_calendar.utils.jalali. "
+							"Print Formats using {{{{ {name}(...) }}}} will fail."
+						)
+					elif method_dict.get("toshamshi") is not None and name == "toshamsi":
+						if method_dict.get("toshamsi") is not method_dict.get("toshamshi"):
+							issues.append("Jinja toshamsi is not the same callable as toshamshi.")
+	except Exception as exc:  # pragma: no cover - site-less environments
+		issues.append(f"Jinja registration check skipped/failed: {exc}")
+
+	return issues
 
 
 def validate_patch_registry() -> list[str]:
@@ -351,6 +454,7 @@ def build_report() -> DiagnosticReport:
 	contracts = validate_all_contracts()
 	registry_issues = validate_patch_registry()
 	import_issues = validate_import_graph()
+	conversion_issues = validate_public_conversion_api()
 	hierarchy_issues: list[str] = []
 	hierarchy_issues.extend(
 		assert_module_class_hierarchy("erpnext.accounts.doctype.budget.budget", "Budget", ("Document",))
@@ -390,6 +494,7 @@ def build_report() -> DiagnosticReport:
 		registry_issues=registry_issues,
 		import_issues=import_issues,
 		hierarchy_issues=hierarchy_issues,
+		conversion_issues=conversion_issues,
 	)
 
 	# Score checks
@@ -453,6 +558,19 @@ def build_report() -> DiagnosticReport:
 	else:
 		report.checks.append(CheckItem("hierarchies", ReleaseLevel.FAIL, f"{len(hierarchy_issues)} issue(s)"))
 
+	if not conversion_issues:
+		report.checks.append(
+			CheckItem("conversion_api", ReleaseLevel.PASS, "toshamshi/toshamsi public API OK")
+		)
+	else:
+		report.checks.append(
+			CheckItem(
+				"conversion_api",
+				ReleaseLevel.FAIL,
+				f"{len(conversion_issues)} conversion API issue(s)",
+			)
+		)
+
 	return report
 
 
@@ -505,6 +623,11 @@ def format_report(report: DiagnosticReport) -> str:
 		lines.append("")
 		lines.append("Hierarchy issues:")
 		for f in report.hierarchy_issues:
+			lines.append(f"  ✗ {f}")
+	if report.conversion_issues:
+		lines.append("")
+		lines.append("Conversion API issues (Print Format / Jinja):")
+		for f in report.conversion_issues:
 			lines.append(f"  ✗ {f}")
 	lines.append("")
 	lines.append("Deferred modules:")
@@ -562,6 +685,7 @@ def report_as_dict() -> dict[str, Any]:
 		"registry_issues": report.registry_issues,
 		"import_issues": report.import_issues,
 		"hierarchy_issues": report.hierarchy_issues,
+		"conversion_issues": report.conversion_issues,
 		"checks": [{"name": c.name, "level": c.level.value, "detail": c.detail} for c in report.checks],
 		"deferred_modules": list(DEFERRED_MODULES),
 		"technical_debt": list(TECHNICAL_DEBT),

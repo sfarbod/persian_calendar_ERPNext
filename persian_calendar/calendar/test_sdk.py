@@ -28,9 +28,17 @@ class TestPublicApiExports(unittest.TestCase):
 			"should_use_jalali_engine",
 			"capture_original",
 			"rebind_consumers",
+			"toshamshi",
+			"toshamsi",
 		):
 			self.assertTrue(hasattr(api, name), f"missing public export: {name}")
 			self.assertIn(name, api.__all__)
+
+	def test_toshamshi_alias_identity(self):
+		from persian_calendar.utils.jalali import toshamshi as legacy
+
+		self.assertIs(api.toshamshi, legacy)
+		self.assertIs(api.toshamsi, api.toshamshi)
 
 	def test_api_imports_cleanly(self):
 		mod = importlib.import_module("persian_calendar.api")
@@ -51,6 +59,16 @@ class TestRegistry(unittest.TestCase):
 		deferred = {m.name for m in INTEGRATED_MODULES if m.status == "deferred"}
 		self.assertIn("CRM Pipeline Analytics", deferred)
 		self.assertIn("MRP / MPS", deferred)
+
+	def test_conversion_utility_registered(self):
+		util = [m for m in INTEGRATED_MODULES if m.status == "public_utility"]
+		self.assertTrue(util)
+		names = {m.name for m in util}
+		self.assertTrue(any("toshamshi" in n for n in names))
+		# Not treated as a patched ERPNext module
+		for m in util:
+			self.assertEqual(m.patch_targets, ())
+			self.assertNotIn(m, implemented_modules())
 
 
 class TestAdaptersUseSharedHelpers(unittest.TestCase):

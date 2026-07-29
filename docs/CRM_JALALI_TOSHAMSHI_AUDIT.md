@@ -128,19 +128,23 @@ These must **not** be merged into `toshamshi` without an explicit Display-layer 
 
 **Keep name:** `toshamshi` (compatibility).
 
-**Stable public export (Phase 5a-1):**
+**Stable public export (Phase 5a-1 — completed):**
 
 ```python
 from persian_calendar.api import toshamshi
+from persian_calendar.api import toshamsi  # identity alias
+
 # legacy still works:
-from persian_calendar.utils.jalali import toshamshi
+from persian_calendar.utils.jalali import toshamshi, toshamsi
 ```
+
+See [`TOSHAMSHI.md`](TOSHAMSHI.md).
 
 **Do not change** default signature or defaults without a compatibility wrapper.
 
 Optional later aliases (explicit contract only):
 
-- `toshamsi` → alias of `toshamshi` (typo tolerance)
+- ~~`toshamsi` → alias of `toshamshi`~~ **done in 5A-1**
 - `to_jalali_date` / `format_jalali_date` — only if they wrap the same implementation
 
 **Non-goals for this API:** period boundaries, SQL filters, Business Calendar.
@@ -267,7 +271,7 @@ execute(filters)
 | Slice | Scope | Commit style |
 |-------|--------|--------------|
 | **5a-0** | This audit documentation | `docs(calendar): audit crm jalali coverage and toshamshi usage` |
-| **5a-1** | Export `toshamshi` on `persian_calendar.api`; docs `TOSHAMSI.md`; optional `toshamsi` alias; tests; **no signature break** | `refactor(calendar): expose canonical toshamshi conversion api` |
+| **5a-1** | Export `toshamshi` on `persian_calendar.api`; docs `TOSHAMSHI.md`; `toshamsi` alias; tests; **no signature break** | `feat(calendar): expose canonical toshamshi conversion api` (**done**) |
 | **5a-2** | CRM display verification matrix (forms/list/print); no BC math | `feat(calendar): add jalali display support for crm` |
 | **5a-3** | Sales Pipeline Analytics BC adapter (Python bucketing or proven safe patch) | `feat(calendar): support business calendar in crm analytics` |
 | **5a-4** | Customer Acquisition / remaining period reports if justified | same family |

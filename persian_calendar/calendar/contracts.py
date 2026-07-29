@@ -210,6 +210,49 @@ CONTRACTS: tuple[CallableContract, ...] = (
 		prefer_captured_original=False,
 		notes="Patched via override_doctype_class → PersianCalendarBudget.",
 	),
+	# Public conversion API (Phase 5A-1) — not ERPNext patches
+	CallableContract(
+		id="api.toshamshi",
+		module="persian_calendar.api",
+		attr="toshamshi",
+		params=(
+			ParamSpec("value"),
+			ParamSpec("include_time", False),
+			ParamSpec("format", "YYYY-MM-DD"),
+			ParamSpec("persian_digits", False),
+		),
+		return_annotation="str",
+		prefer_captured_original=False,
+		notes="Canonical Jalali display conversion. Jinja/Print Formats depend on this.",
+	),
+	CallableContract(
+		id="api.toshamsi",
+		module="persian_calendar.api",
+		attr="toshamsi",
+		params=(
+			ParamSpec("value"),
+			ParamSpec("include_time", False),
+			ParamSpec("format", "YYYY-MM-DD"),
+			ParamSpec("persian_digits", False),
+		),
+		return_annotation="str",
+		prefer_captured_original=False,
+		notes="Identity alias of toshamshi (correct spelling). Same callable.",
+	),
+	CallableContract(
+		id="utils.jalali.toshamshi",
+		module="persian_calendar.utils.jalali",
+		attr="toshamshi",
+		params=(
+			ParamSpec("value"),
+			ParamSpec("include_time", False),
+			ParamSpec("format", "YYYY-MM-DD"),
+			ParamSpec("persian_digits", False),
+		),
+		return_annotation="str",
+		prefer_captured_original=False,
+		notes="Legacy import path used by Print Formats and erpnext_extensions.",
+	),
 )
 
 

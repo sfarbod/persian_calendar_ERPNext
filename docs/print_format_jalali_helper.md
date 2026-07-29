@@ -60,6 +60,9 @@ toshamshi("1990-01-02")
 toshamshi("2026-05-13")
 toshamshi("2026-03-18 13:36:04", include_time=True)
 toshamshi("1404-12-28")
+
+# Public API (Phase 5A-1) — same callable; toshamsi is an identity alias
+from persian_calendar.api import toshamshi, toshamsi
 to_persian_digits("1404-12-28 13:36:04")
 ```
 

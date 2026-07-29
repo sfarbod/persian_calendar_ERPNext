@@ -73,6 +73,16 @@ Symbols not listed here are internal unless documented otherwise.
 | `install_adapter` | Module attribute replace |
 | `rebind_consumers` | Identity rebind |
 
+## Display conversion (Phase 5A-1)
+
+| Symbol | Role |
+|--------|------|
+| `toshamshi` | Canonical Jalali display conversion (legacy public name) |
+| `toshamsi` | Identity alias of `toshamshi` (correct spelling) |
+
+Implementation: `persian_calendar.utils.jalali` (single algorithm).  
+See [`TOSHAMSHI.md`](TOSHAMSHI.md). These are **not** Business Calendar period APIs.
+
 ---
 
 See `docs/SDK.md` for extension workflow.

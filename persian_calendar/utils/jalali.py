@@ -159,6 +159,11 @@ def toshamshi(
 	return to_persian_digits(out) if persian_digits else out
 
 
+# Correctly spelled compatibility alias — same callable (identity preserved).
+# Do not introduce a second conversion algorithm.
+toshamsi = toshamshi
+
+
 def strip_microseconds(value: Any) -> Any:
 	if value is None or value == "":
 		return value

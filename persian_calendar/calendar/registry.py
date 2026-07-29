@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ModuleStatus = Literal["implemented", "deferred", "helper_rebind_only"]
+ModuleStatus = Literal["implemented", "deferred", "helper_rebind_only", "public_utility"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,25 @@ class IntegratedModule:
 
 # Registry — keep in sync with patches.py / contracts.py / docs
 INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
+	IntegratedModule(
+		name="toshamshi / toshamsi conversion",
+		status="public_utility",
+		patch_targets=(),
+		consumers=(
+			"Jinja Print Formats (hooks.jinja.methods)",
+			"PDF / email Notification Jinja",
+			"brace templates (toshamshi only)",
+			"persian_calendar.utils.data_io export",
+			"erpnext_extensions voucher GL print",
+		),
+		documentation="docs/TOSHAMSHI.md",
+		compatibility_note="Contracts: api.toshamshi, api.toshamsi, utils.jalali.toshamshi",
+		diagnostics_ids=("api.toshamshi", "api.toshamsi", "utils.jalali.toshamshi"),
+		mechanism="Single implementation in utils.jalali; re-exported via persian_calendar.api; "
+		"toshamsi is an identity alias",
+		notes="Display/conversion only — not a Business Calendar period engine; "
+		"does not consult Display Calendar or Company Business Calendar.",
+	),
 	IntegratedModule(
 		name="Financial Statements",
 		status="implemented",

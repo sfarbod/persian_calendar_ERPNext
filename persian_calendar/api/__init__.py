@@ -61,6 +61,10 @@ from persian_calendar.calendar.resolve import (
 	normalize_business_calendar,
 )
 
+# Display/conversion utilities (not Business Calendar period engines).
+# Canonical implementation lives in ``persian_calendar.utils.jalali``.
+from persian_calendar.utils.jalali import toshamshi, toshamsi
+
 __all__ = [
 	"BUSINESS_CALENDAR_GREGORIAN",
 	"BUSINESS_CALENDAR_JALALI",
@@ -97,4 +101,6 @@ __all__ = [
 	"run_diagnostics",
 	"should_use_jalali_engine",
 	"snap_jalali_range_start",
+	"toshamshi",
+	"toshamsi",
 ]

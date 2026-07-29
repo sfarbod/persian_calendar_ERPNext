@@ -23,13 +23,14 @@ How to extend the framework with a new ERPNext adapter **without** changing
 - Registry (`INTEGRATED_MODULES`, `registry_as_dict`)
 - Adapter helpers (`build_jalali_periods`, `should_use_jalali_engine`, …)
 - Patch SDK (`capture_original`, `install_adapter`, `rebind_consumers`)
+- Display conversion: `toshamshi`, `toshamsi` (alias) — see [`TOSHAMSHI.md`](TOSHAMSHI.md)
 
 **Internal** (do not depend on in app code):
 
 - `persian_calendar.calendar.integrations.*` adapters (implementation)
 - `adapter_template.py` (docs-as-code only)
 - Private `_` helpers inside adapters
-- Display Calendar / `jalali_support.formatters` (presentation layer)
+- Display Calendar / `jalali_support.formatters` (Desk presentation layer; distinct from `toshamshi`)
 
 ---
 

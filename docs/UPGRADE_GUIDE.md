@@ -143,3 +143,10 @@ Treat `FAIL` as a hard CI failure. Treat `WARNING` as optional fail (recommended
 | [`BUSINESS_CALENDAR_DEVELOPER_GUIDE.md`](BUSINESS_CALENDAR_DEVELOPER_GUIDE.md) | Extension recipes |
 | [`SDK.md`](SDK.md) | Phase 4b public API / adapter workflow |
 | [`API_REFERENCE.md`](API_REFERENCE.md) | `persian_calendar.api` symbols |
+| [`TOSHAMSHI.md`](TOSHAMSHI.md) | Canonical Jalali conversion (`toshamshi` / `toshamsi`) |
+
+### Print Format conversion guard (Phase 5A-1)
+
+`release_check` includes a **conversion_api** check. Missing `toshamshi` /
+`toshamsi` (or a broken Jinja module hook) is a **FAIL** because Print Formats
+depend on them. This is independent of Business Calendar patch health.
