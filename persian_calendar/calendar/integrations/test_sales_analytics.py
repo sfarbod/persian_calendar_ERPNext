@@ -95,18 +95,19 @@ class TestSalesAnalyticsPatchLifecycle(unittest.TestCase):
 
 		self.assertIs(sa_mod.Analytics.get_period_date_ranges, sa.get_period_date_ranges)
 
-	def test_trends_and_stock_analytics_untouched(self):
+	def test_trends_and_stock_analytics_not_sales_adapter(self):
 		apply_calendar_patches()
 		import erpnext.controllers.trends as trends_mod
 		import erpnext.stock.report.stock_analytics.stock_analytics as stock_mod
 
-		# Trends module function is our trends adapter — not sales analytics
+		from persian_calendar.calendar.integrations import stock_analytics as stk_adapter
 		from persian_calendar.calendar.integrations import trends as trends_adapter
 
+		# Trends module function is our trends adapter — not sales analytics
 		self.assertIs(trends_mod.get_period_date_ranges, trends_adapter.get_period_date_ranges)
-		# Stock Analytics keeps its own free function (not Sales Analytics methods)
+		# Stock Analytics has its own free-function adapter (Phase 3d-2), not Sales methods
+		self.assertIs(stock_mod.get_period_date_ranges, stk_adapter.get_period_date_ranges)
 		self.assertIsNot(stock_mod.get_period_date_ranges, sa.get_period_date_ranges)
-		self.assertTrue(callable(stock_mod.get_period_date_ranges))
 
 
 class TestGregorianDelegation(unittest.TestCase):

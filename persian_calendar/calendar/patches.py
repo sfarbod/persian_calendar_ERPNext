@@ -52,6 +52,7 @@ MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribu
 TRENDS_MODULE_PATH = "erpnext.controllers.trends"
 BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
 SALES_ANALYTICS_MODULE_PATH = "erpnext.selling.report.sales_analytics.sales_analytics"
+STOCK_ANALYTICS_MODULE_PATH = "erpnext.stock.report.stock_analytics.stock_analytics"
 
 # Verified importers of get_periodwise_distribution_data
 MD_PERIODWISE_CONSUMERS: tuple[str, ...] = (
@@ -63,6 +64,21 @@ MD_PERIODWISE_CONSUMERS: tuple[str, ...] = (
 # Do NOT include stock_analytics / sales_analytics — those define their own functions.
 TRENDS_PERIOD_RANGES_CONSUMERS: tuple[str, ...] = (
 	"erpnext.accounts.report.budget_variance_report.budget_variance_report",
+)
+
+# Verified direct importers of stock_analytics period helpers (ERPNext v16.29).
+# warehouse_wise_item_balance_age_and_value imports data helpers only — not rebound.
+STOCK_ANALYTICS_PERIOD_CONSUMERS: tuple[str, ...] = (
+	"erpnext.manufacturing.report.production_analytics.production_analytics",
+	"erpnext.manufacturing.report.work_order_summary.work_order_summary",
+	"erpnext.manufacturing.report.job_card_summary.job_card_summary",
+)
+
+# Attributes rebound on known Stock Analytics consumers (identity match only).
+STOCK_ANALYTICS_REBIND_ATTRS: tuple[str, ...] = (
+	"get_period_date_ranges",
+	"get_period",
+	"get_period_columns",
 )
 
 
@@ -95,6 +111,16 @@ class PatchState:
 	original_sa_get_chart_data: Callable[..., Any] | None = None
 	original_sa_update_company_list: Callable[..., Any] | None = None
 	sales_analytics_patched: bool = False
+	# Stock Analytics free functions (+ manufacturing identity rebinds)
+	original_stk_get_period_date_ranges: Callable[..., Any] | None = None
+	original_stk_get_period: Callable[..., Any] | None = None
+	original_stk_get_period_columns: Callable[..., Any] | None = None
+	original_stk_round_down: Callable[..., Any] | None = None
+	adapter_stk_get_period_date_ranges: Callable[..., Any] | None = None
+	adapter_stk_get_period: Callable[..., Any] | None = None
+	adapter_stk_get_period_columns: Callable[..., Any] | None = None
+	stock_analytics_patched: bool = False
+	stk_rebound_modules: list[str] = field(default_factory=list)
 	last_error: str | None = None
 
 
@@ -143,6 +169,7 @@ def reset_calendar_patches_for_tests() -> None:
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
 	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
 	from persian_calendar.calendar.integrations import sales_analytics as sa_adapter_mod
+	from persian_calendar.calendar.integrations import stock_analytics as stk_adapter_mod
 	from persian_calendar.calendar.integrations import trends as trends_adapter_mod
 
 	if _state.sales_analytics_patched and _state.original_sa_get_period_date_ranges is not None:
@@ -155,6 +182,28 @@ def reset_calendar_patches_for_tests() -> None:
 				cls.get_columns = _state.original_sa_get_columns
 				cls.get_chart_data = _state.original_sa_get_chart_data
 				cls.update_company_list_for_parent_company = _state.original_sa_update_company_list
+
+	if _state.stock_analytics_patched and _state.original_stk_get_period_date_ranges is not None:
+		stk_mod = sys.modules.get(STOCK_ANALYTICS_MODULE_PATH)
+		if stk_mod is not None and _state.adapter_stk_get_period_date_ranges is not None:
+			if getattr(stk_mod, "get_period_date_ranges", None) is _state.adapter_stk_get_period_date_ranges:
+				stk_mod.get_period_date_ranges = _state.original_stk_get_period_date_ranges
+				stk_mod.get_period = _state.original_stk_get_period
+				stk_mod.get_period_columns = _state.original_stk_get_period_columns
+			for attr, original, adapter in (
+				(
+					"get_period_date_ranges",
+					_state.original_stk_get_period_date_ranges,
+					_state.adapter_stk_get_period_date_ranges,
+				),
+				("get_period", _state.original_stk_get_period, _state.adapter_stk_get_period),
+				(
+					"get_period_columns",
+					_state.original_stk_get_period_columns,
+					_state.adapter_stk_get_period_columns,
+				),
+			):
+				_restore_attr_consumers(original, adapter, attr, STOCK_ANALYTICS_PERIOD_CONSUMERS)
 
 	if _state.original_get_period_date_ranges is not None:
 		trends_mod = sys.modules.get(TRENDS_MODULE_PATH)
@@ -184,6 +233,10 @@ def reset_calendar_patches_for_tests() -> None:
 	sa_adapter_mod._original_get_columns = None
 	sa_adapter_mod._original_get_chart_data = None
 	sa_adapter_mod._original_update_company_list = None
+	stk_adapter_mod._original_get_period_date_ranges = None
+	stk_adapter_mod._original_get_period = None
+	stk_adapter_mod._original_get_period_columns = None
+	stk_adapter_mod._original_round_down = None
 	_state = PatchState()
 
 
@@ -194,6 +247,7 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3b: Monthly Distribution ``get_periodwise_distribution_data`` / ``get_percentage``.
 	Phase 3c: Trends ``get_period_date_ranges`` + Budget Variance ``execute``.
 	Phase 3d-1: Sales / Purchase Analytics ``Analytics`` methods.
+	Phase 3d-2: Stock Analytics free functions + manufacturing rebinds.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -221,6 +275,11 @@ def apply_calendar_patches() -> PatchStatus:
 	if sa_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
 		_state.status = sa_status
 		return sa_status
+
+	stk_status = _apply_stock_analytics_patch()
+	if stk_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = stk_status
+		return stk_status
 
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
@@ -567,6 +626,140 @@ def _apply_sales_analytics_patch() -> PatchStatus:
 	# replacement on the class covers it. No separate free-function rebind.
 	logger.info("Calendar Sales/Purchase Analytics Analytics methods patched")
 	return PatchStatus.APPLIED
+
+
+def _apply_stock_analytics_patch() -> PatchStatus:
+	"""Patch Stock Analytics free functions and identity-rebind manufacturing importers.
+
+	Target name in diagnostics: ``stock_analytics`` (not Trends, not Sales Analytics).
+	``round_down_to_nearest_frequency`` is captured but NOT replaced on the module.
+	"""
+	global _state
+
+	from persian_calendar.calendar.integrations import stock_analytics as stk_adapter
+	from persian_calendar.calendar.integrations.stock_analytics import (
+		set_original_stock_analytics_functions,
+	)
+
+	if (
+		_state.stock_analytics_patched
+		and _state.original_stk_get_period_date_ranges is not None
+		and _state.adapter_stk_get_period_date_ranges is stk_adapter.get_period_date_ranges
+	):
+		stk_mod = sys.modules.get(STOCK_ANALYTICS_MODULE_PATH)
+		if stk_mod is not None and getattr(stk_mod, "get_period_date_ranges", None) is (
+			stk_adapter.get_period_date_ranges
+		):
+			rebound = _rebind_stock_analytics_consumers()
+			for name in rebound:
+				if name not in _state.stk_rebound_modules:
+					_state.stk_rebound_modules.append(name)
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.stock.report.stock_analytics.stock_analytics as stk_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext stock_analytics unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current_ranges = stk_mod.get_period_date_ranges
+
+	if _state.original_stk_get_period_date_ranges is None:
+		if current_ranges is stk_adapter.get_period_date_ranges:
+			_state.last_error = (
+				"stock_analytics.get_period_date_ranges is already the adapter but "
+				"original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_stk_get_period_date_ranges = stk_mod.get_period_date_ranges
+		_state.original_stk_get_period = stk_mod.get_period
+		_state.original_stk_get_period_columns = stk_mod.get_period_columns
+		_state.original_stk_round_down = stk_mod.round_down_to_nearest_frequency
+
+	set_original_stock_analytics_functions(
+		_state.original_stk_get_period_date_ranges,
+		_state.original_stk_get_period,
+		_state.original_stk_get_period_columns,
+		_state.original_stk_round_down,
+	)
+
+	_state.adapter_stk_get_period_date_ranges = stk_adapter.get_period_date_ranges
+	_state.adapter_stk_get_period = stk_adapter.get_period
+	_state.adapter_stk_get_period_columns = stk_adapter.get_period_columns
+
+	if current_ranges is not stk_adapter.get_period_date_ranges:
+		stk_mod.get_period_date_ranges = stk_adapter.get_period_date_ranges
+	if stk_mod.get_period is not stk_adapter.get_period:
+		stk_mod.get_period = stk_adapter.get_period
+	if stk_mod.get_period_columns is not stk_adapter.get_period_columns:
+		stk_mod.get_period_columns = stk_adapter.get_period_columns
+	# Intentionally leave round_down_to_nearest_frequency as the stock original.
+
+	_state.stock_analytics_patched = True
+
+	rebound = _rebind_stock_analytics_consumers()
+	_state.stk_rebound_modules = list(dict.fromkeys(_state.stk_rebound_modules + rebound))
+
+	still = []
+	for attr, original in (
+		("get_period_date_ranges", _state.original_stk_get_period_date_ranges),
+		("get_period", _state.original_stk_get_period),
+		("get_period_columns", _state.original_stk_get_period_columns),
+	):
+		# Only check consumers that actually import this attribute
+		for mod_name in STOCK_ANALYTICS_PERIOD_CONSUMERS:
+			mod = sys.modules.get(mod_name)
+			if mod is None:
+				continue
+			current = getattr(mod, attr, None)
+			if current is None:
+				continue
+			if current is original:
+				still.append(f"{mod_name}.{attr}")
+
+	if still:
+		_state.last_error = f"Failed to rebind Stock Analytics consumers: {', '.join(still)}"
+		logger.error(_state.last_error)
+		return PatchStatus.PARTIAL_REBIND
+
+	if rebound:
+		logger.info("Calendar Stock Analytics patch applied; rebound: %s", ", ".join(rebound))
+	else:
+		logger.info("Calendar Stock Analytics patch applied (no preloaded consumers to rebind)")
+	return PatchStatus.APPLIED
+
+
+def _rebind_stock_analytics_consumers() -> list[str]:
+	"""Identity-rebind known manufacturing importers of Stock Analytics helpers."""
+	rebound: list[str] = []
+	pairs = (
+		(
+			"get_period_date_ranges",
+			_state.original_stk_get_period_date_ranges,
+			_state.adapter_stk_get_period_date_ranges,
+		),
+		("get_period", _state.original_stk_get_period, _state.adapter_stk_get_period),
+		(
+			"get_period_columns",
+			_state.original_stk_get_period_columns,
+			_state.adapter_stk_get_period_columns,
+		),
+	)
+	for mod_name in STOCK_ANALYTICS_PERIOD_CONSUMERS:
+		mod = sys.modules.get(mod_name)
+		if mod is None:
+			continue
+		changed = False
+		for attr, original, adapter in pairs:
+			if original is None or adapter is None:
+				continue
+			if _rebind_module_attr(mod, original, adapter, attr):
+				changed = True
+		if changed:
+			rebound.append(mod_name)
+	return rebound
 
 
 def _rebind_get_period_list_consumers(

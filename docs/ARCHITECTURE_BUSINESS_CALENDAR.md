@@ -393,8 +393,8 @@ Do not claim compatibility with versions that were not tested.
 | Trends report column labels | Presentation limitation | May still use Gregorian `%b` / `get_mon` |
 | Sales Analytics | Implemented (Phase 3d-1) | Shared `Analytics` class methods; Weekly → stock |
 | Purchase Analytics | Implemented (Phase 3d-1) | Same class as Sales Analytics — no second patch |
-| Stock Analytics | Not started | Deferred (Phase 3d-2) |
-| Production / WO / Job Card Analytics helpers | Not started | Depend on Stock Analytics patch (3d-2) |
+| Stock Analytics | Implemented (Phase 3d-2) | Free functions via `integrations/stock_analytics.py`; Weekly → stock; carry-forward preserved |
+| Production / WO / Job Card Summary | Implemented (Phase 3d-2) | Identity-rebind of Stock Analytics period helpers only — not core MRP |
 | CRM Pipeline / Issue Analytics | Not started | Deferred |
 | Forecast | Not started | Deferred (Phase 3e) |
 | Manufacturing (MRP / MPS) | Not started | Deferred (Phase 4) |
@@ -617,7 +617,8 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | Area | Limitation |
 |------|------------|
 | Console bootstrap | Must call `apply_calendar_patches()` manually |
-| Sales / Purchase / Stock Analytics | Not implemented |
+| Sales / Purchase Analytics | Implemented (3d-1); see module note |
+| Stock Analytics + manufacturing helper rebinds | Implemented (3d-2); core MRP/MPS not started |
 | Forecast | Not redesigned |
 | MRP / MPS | Not started |
 | HRMS | Not started |
@@ -667,10 +668,10 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 |--|--|
 | **Purpose** | Sales / Purchase / Stock Analytics period engines on Business Calendar |
 | **Phase 3d-1 (done)** | Sales + Purchase Analytics via `integrations/sales_analytics.py`; Weekly delegates to stock; stable `BusinessPeriod.key` buckets |
-| **Phase 3d-2 (pending)** | Stock Analytics free functions + manufacturing consumers |
+| **Phase 3d-2 (done)** | Stock Analytics free functions + Production / WO / Job Card identity rebinds; carry-forward via stable `get_period` keys |
 | **Dependencies** | Period engine + applicator patterns from Phases 3a–3c |
-| **Expected mechanism** | Dedicated adapters; do not confuse with Trends `get_period_date_ranges` (different functions) |
-| **Risks** | Multiple same-named helpers; label-as-key charts; SLE balance carry |
+| **Mechanism** | Dedicated adapters; do not confuse with Trends `get_period_date_ranges` (different functions / contracts) |
+| **Risks** | Multiple same-named helpers; label-as-key charts on WO/JC; SLE balance carry |
 
 ### Phase 3e — Forecast
 
@@ -934,5 +935,6 @@ The framework is **fit for frozen use** as the accounting-period foundation for 
 | `docs/budget_business_calendar.md` | Phase 3b Budget / Monthly Distribution |
 | `docs/budget_variance_trends.md` | Phase 3c Trends / Budget Variance |
 | `docs/sales_purchase_analytics.md` | Phase 3d-1 Sales / Purchase Analytics |
+| `docs/stock_analytics.md` | Phase 3d-2 Stock Analytics + manufacturing rebinds |
 
 This Architecture Freeze is the authoritative overview; module docs remain detailed companions.

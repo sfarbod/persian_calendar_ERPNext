@@ -38,6 +38,7 @@ purchase_analytics.execute(filters)
 | Chart values | Read `fieldname` (stock `scrub(label)` is unsafe when label ≠ key) |
 | Mixed subsidiary calendars | Validation error |
 
-## Deferred
+## Related / deferred
 
-Stock Analytics, Production Analytics, Work Order / Job Card summaries, CRM Pipeline, Issue Analytics, Trends presentation labels.
+- Stock Analytics + manufacturing helper rebinds: Phase 3d-2 (`docs/stock_analytics.md`)
+- Deferred: CRM Pipeline, Issue Analytics, Trends presentation labels, core MRP/MPS

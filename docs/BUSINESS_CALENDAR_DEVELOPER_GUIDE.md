@@ -541,7 +541,20 @@ Shared class `erpnext.selling.report.sales_analytics.sales_analytics.Analytics`:
 
 See `integrations/sales_analytics.py` and `test_sales_analytics.py`.
 
-**Recipes count: 8**
+### Recipe I — Stock Analytics + manufacturing rebinds (Phase 3d-2)
+
+Free functions on `erpnext.stock.report.stock_analytics.stock_analytics`:
+
+1. Patch `get_period_date_ranges`, `get_period`, `get_period_columns` via `apply_calendar_patches`.
+2. Do **not** patch `round_down_to_nearest_frequency` (captured original must remain on the module so Gregorian delegation via module globals stays correct).
+3. Identity-rebind Production Analytics, Work Order Summary, Job Card Summary.
+4. Gregorian + Weekly → captured originals; Jalali Monthly/Quarterly/Half-Yearly/Yearly → `BusinessPeriodEngine`.
+5. Leave `get_periodic_data` unpatched — carry-forward uses stable `get_period` keys.
+6. This is **not** core MRP/MPS.
+
+See `integrations/stock_analytics.py`, `docs/stock_analytics.md`, and `test_stock_analytics.py`.
+
+**Recipes count: 9**
 
 ---
 
@@ -571,6 +584,8 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`business_period_engine.md`](business_period_engine.md) | Engine + patch primer |
 | [`budget_business_calendar.md`](budget_business_calendar.md) | Budget / Monthly Distribution |
 | [`budget_variance_trends.md`](budget_variance_trends.md) | Trends / Budget Variance |
+| [`sales_purchase_analytics.md`](sales_purchase_analytics.md) | Sales / Purchase Analytics |
+| [`stock_analytics.md`](stock_analytics.md) | Stock Analytics + manufacturing rebinds |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---
