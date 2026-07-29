@@ -70,6 +70,13 @@ class TestRegistry(unittest.TestCase):
 			self.assertEqual(m.patch_targets, ())
 			self.assertNotIn(m, implemented_modules())
 
+	def test_crm_display_covered_registered(self):
+		covered = [m for m in INTEGRATED_MODULES if m.status == "display_covered"]
+		self.assertTrue(any(m.name == "CRM Display Calendar" for m in covered))
+		for m in covered:
+			self.assertEqual(m.patch_targets, ())
+			self.assertNotIn(m, implemented_modules())
+
 
 class TestAdaptersUseSharedHelpers(unittest.TestCase):
 	"""Sales and Stock must import adapter_helpers (Phase 4b consolidation)."""

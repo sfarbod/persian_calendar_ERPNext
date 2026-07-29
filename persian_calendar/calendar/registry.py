@@ -10,7 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ModuleStatus = Literal["implemented", "deferred", "helper_rebind_only", "public_utility"]
+ModuleStatus = Literal[
+	"implemented",
+	"deferred",
+	"helper_rebind_only",
+	"public_utility",
+	"display_covered",
+]
 
 
 @dataclass(frozen=True)
@@ -199,10 +205,28 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		mechanism="Identity rebind of Stock period helpers",
 	),
 	IntegratedModule(
+		name="CRM Display Calendar",
+		status="display_covered",
+		patch_targets=(),
+		consumers=(
+			"Lead / Opportunity / Appointment / Email Campaign / CRM Note / Contract forms & lists",
+			"CRM Query Report Date filters and Date columns",
+			"Communication / Event / ToDo in CRM context",
+		),
+		documentation="docs/CRM_DISPLAY_CALENDAR.md",
+		compatibility_note="Inherits global desk Display Calendar; no CRM-specific display adapters",
+		diagnostics_ids=(),
+		mechanism="jalali_support.bundle.js + datetime_normalizer; explicit toshamshi for print/email",
+		notes="Limitations: Pipeline English month labels (BC deferred); First Response chart ISO "
+		"axis; Appointment email format_datetime; standard print formatdate. "
+		"Not a Business Calendar integration.",
+	),
+	IntegratedModule(
 		name="CRM Pipeline Analytics",
 		status="deferred",
 		patch_targets=(),
-		notes="Explicit non-goal until a dedicated phase",
+		documentation="docs/CRM_DISPLAY_CALENDAR.md",
+		notes="Business Calendar period bucketing deferred to Phase 5A-3; Display filters already covered",
 	),
 	IntegratedModule(
 		name="Issue Analytics",

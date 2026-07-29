@@ -70,6 +70,7 @@ TECHNICAL_DEBT = (
 	"Sales/Stock quarter-half first-day snap still uses small jdatetime helper",
 	"toshamshi: out-of-range month/day strings may overflow via jdatetime (not rejected)",
 	"toshamshi: years 1601–1699 treated as Gregorian (heuristic gap)",
+	"CRM: Sales Pipeline month labels English Gregorian (BC deferred); Appointment email uses format_datetime",
 )
 
 UPGRADE_RISKS = (
