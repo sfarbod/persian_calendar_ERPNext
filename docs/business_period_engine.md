@@ -147,11 +147,13 @@ Calendar Framework
   BusinessPeriodEngine          # one engine
   apply_calendar_patches()      # one applicator
     ├── get_period_list (Phase 3a)
-    ├── trends (later)
+    ├── monthly distribution (Phase 3b)
+    ├── trends.get_period_date_ranges (Phase 3c)
+    ├── budget_variance.execute (Phase 3c)
     ├── analytics (later)
     └── ...
 hooks: before_request + before_job + before_tests
 ```
 
-Budget, Trends, Sales/Purchase/Stock Analytics must consume `BusinessPeriodEngine`
-via thin adapters registered in the same applicator.
+See `docs/budget_variance_trends.md` for Phase 3c. Sales/Purchase/Stock Analytics
+must consume `BusinessPeriodEngine` via thin adapters in the same applicator.

@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger("persian_calendar.calendar.patches")
 
@@ -48,10 +49,19 @@ GET_PERIOD_LIST_CONSUMERS: tuple[str, ...] = (
 
 FS_MODULE_PATH = "erpnext.accounts.report.financial_statements"
 MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribution"
+TRENDS_MODULE_PATH = "erpnext.controllers.trends"
+BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
 
 # Verified importers of get_periodwise_distribution_data
 MD_PERIODWISE_CONSUMERS: tuple[str, ...] = (
 	"erpnext.selling.report.sales_partner_target_variance_based_on_item_group.item_group_wise_sales_target_variance",
+)
+
+# Verified direct importers of trends.get_period_date_ranges (ERPNext v16.29).
+# Same-module callers (period_wise_columns_query, get_period_month_ranges) need no rebind.
+# Do NOT include stock_analytics / sales_analytics — those define their own functions.
+TRENDS_PERIOD_RANGES_CONSUMERS: tuple[str, ...] = (
+	"erpnext.accounts.report.budget_variance_report.budget_variance_report",
 )
 
 
@@ -70,6 +80,13 @@ class PatchState:
 	original_get_percentage: Callable[..., Any] | None = None
 	adapter_get_percentage: Callable[..., Any] | None = None
 	md_rebound_modules: list[str] = field(default_factory=list)
+	# Trends get_period_date_ranges
+	original_get_period_date_ranges: Callable[..., Any] | None = None
+	adapter_get_period_date_ranges: Callable[..., Any] | None = None
+	trends_rebound_modules: list[str] = field(default_factory=list)
+	# Budget Variance report execute
+	original_budget_variance_execute: Callable[..., Any] | None = None
+	adapter_budget_variance_execute: Callable[..., Any] | None = None
 	last_error: str | None = None
 
 
@@ -102,9 +119,7 @@ def reset_calendar_patches_for_tests() -> None:
 				getattr(md_mod, "get_periodwise_distribution_data", None)
 				is _state.adapter_get_periodwise_distribution_data
 			):
-				md_mod.get_periodwise_distribution_data = (
-					_state.original_get_periodwise_distribution_data
-				)
+				md_mod.get_periodwise_distribution_data = _state.original_get_periodwise_distribution_data
 			if (
 				_state.adapter_get_percentage is not None
 				and getattr(md_mod, "get_percentage", None) is _state.adapter_get_percentage
@@ -116,12 +131,34 @@ def reset_calendar_patches_for_tests() -> None:
 				"get_periodwise_distribution_data",
 				MD_PERIODWISE_CONSUMERS,
 			)
+	from persian_calendar.calendar.integrations import budget_variance as bvr_adapter_mod
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
 	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
+	from persian_calendar.calendar.integrations import trends as trends_adapter_mod
 
-	fs_adapter_mod._original_get_period_list = None  # noqa: SLF001
-	md_adapter_mod._original_get_periodwise_distribution_data = None  # noqa: SLF001
-	md_adapter_mod._original_get_percentage = None  # noqa: SLF001
+	if _state.original_get_period_date_ranges is not None:
+		trends_mod = sys.modules.get(TRENDS_MODULE_PATH)
+		if trends_mod is not None and _state.adapter_get_period_date_ranges is not None:
+			if getattr(trends_mod, "get_period_date_ranges", None) is _state.adapter_get_period_date_ranges:
+				trends_mod.get_period_date_ranges = _state.original_get_period_date_ranges
+			_restore_attr_consumers(
+				_state.original_get_period_date_ranges,
+				_state.adapter_get_period_date_ranges,
+				"get_period_date_ranges",
+				TRENDS_PERIOD_RANGES_CONSUMERS,
+			)
+
+	if _state.original_budget_variance_execute is not None:
+		bvr_mod = sys.modules.get(BVR_MODULE_PATH)
+		if bvr_mod is not None and _state.adapter_budget_variance_execute is not None:
+			if getattr(bvr_mod, "execute", None) is _state.adapter_budget_variance_execute:
+				bvr_mod.execute = _state.original_budget_variance_execute
+
+	fs_adapter_mod._original_get_period_list = None
+	md_adapter_mod._original_get_periodwise_distribution_data = None
+	md_adapter_mod._original_get_percentage = None
+	trends_adapter_mod._original_get_period_date_ranges = None
+	bvr_adapter_mod._original_execute = None
 	_state = PatchState()
 
 
@@ -130,6 +167,7 @@ def apply_calendar_patches() -> PatchStatus:
 
 	Phase 3a: Financial Statements ``get_period_list``.
 	Phase 3b: Monthly Distribution ``get_periodwise_distribution_data`` / ``get_percentage``.
+	Phase 3c: Trends ``get_period_date_ranges`` + Budget Variance ``execute``.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -143,9 +181,20 @@ def apply_calendar_patches() -> PatchStatus:
 		_state.status = md_status
 		return md_status
 
+	trends_status = _apply_trends_patch()
+	if trends_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = trends_status
+		return trends_status
+
+	bvr_status = _apply_budget_variance_patch()
+	if bvr_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = bvr_status
+		return bvr_status
+
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
 	return PatchStatus.APPLIED
+
 
 def _apply_get_period_list_patch() -> PatchStatus:
 	global _state
@@ -262,8 +311,7 @@ def _apply_monthly_distribution_patch() -> PatchStatus:
 	if _state.original_get_periodwise_distribution_data is None:
 		if current_pw is md_periodwise:
 			_state.last_error = (
-				"get_periodwise_distribution_data is already the adapter but original "
-				"was never captured"
+				"get_periodwise_distribution_data is already the adapter but original " "was never captured"
 			)
 			logger.error(_state.last_error)
 			return PatchStatus.FAILED
@@ -303,6 +351,130 @@ def _apply_monthly_distribution_patch() -> PatchStatus:
 		logger.info("Calendar MD patch applied; rebound: %s", ", ".join(rebound))
 	else:
 		logger.info("Calendar MD patch applied (no preloaded consumers to rebind)")
+	return PatchStatus.APPLIED
+
+
+def _apply_trends_patch() -> PatchStatus:
+	"""Patch ``erpnext.controllers.trends.get_period_date_ranges``."""
+	global _state
+
+	from persian_calendar.calendar.integrations.trends import (
+		get_period_date_ranges as adapter,
+	)
+	from persian_calendar.calendar.integrations.trends import (
+		set_original_get_period_date_ranges,
+	)
+
+	if (
+		_state.original_get_period_date_ranges is not None
+		and _state.adapter_get_period_date_ranges is adapter
+	):
+		trends_mod = sys.modules.get(TRENDS_MODULE_PATH)
+		if trends_mod is not None and getattr(trends_mod, "get_period_date_ranges", None) is adapter:
+			rebound = _rebind_named_consumers(
+				_state.original_get_period_date_ranges,
+				adapter,
+				"get_period_date_ranges",
+				TRENDS_PERIOD_RANGES_CONSUMERS,
+				TRENDS_MODULE_PATH,
+			)
+			for name in rebound:
+				if name not in _state.trends_rebound_modules:
+					_state.trends_rebound_modules.append(name)
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.controllers.trends as trends_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext trends unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current = trends_mod.get_period_date_ranges
+
+	if _state.original_get_period_date_ranges is None:
+		if current is adapter:
+			_state.last_error = (
+				"get_period_date_ranges is already the adapter but original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_get_period_date_ranges = current
+
+	original = _state.original_get_period_date_ranges
+	_state.adapter_get_period_date_ranges = adapter
+	set_original_get_period_date_ranges(original)
+
+	if current is not adapter:
+		trends_mod.get_period_date_ranges = adapter
+
+	rebound = _rebind_named_consumers(
+		original,
+		adapter,
+		"get_period_date_ranges",
+		TRENDS_PERIOD_RANGES_CONSUMERS,
+		TRENDS_MODULE_PATH,
+	)
+	_state.trends_rebound_modules = list(dict.fromkeys(_state.trends_rebound_modules + rebound))
+
+	still = _loaded_known_consumers_still_on_original(
+		original, "get_period_date_ranges", TRENDS_PERIOD_RANGES_CONSUMERS
+	)
+	if still:
+		_state.last_error = f"Failed to rebind Trends consumers: {', '.join(still)}"
+		logger.error(_state.last_error)
+		return PatchStatus.PARTIAL_REBIND
+
+	if rebound:
+		logger.info("Calendar Trends patch applied; rebound: %s", ", ".join(rebound))
+	else:
+		logger.info("Calendar Trends patch applied (no preloaded consumers to rebind)")
+	return PatchStatus.APPLIED
+
+
+def _apply_budget_variance_patch() -> PatchStatus:
+	"""Patch Budget Variance ``execute`` — Trends ranges alone cannot fix month-name keys."""
+	global _state
+
+	from persian_calendar.calendar.integrations.budget_variance import execute as adapter
+	from persian_calendar.calendar.integrations.budget_variance import (
+		set_original_budget_variance_execute,
+	)
+
+	if (
+		_state.original_budget_variance_execute is not None
+		and _state.adapter_budget_variance_execute is adapter
+	):
+		bvr_mod = sys.modules.get(BVR_MODULE_PATH)
+		if bvr_mod is not None and getattr(bvr_mod, "execute", None) is adapter:
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.accounts.report.budget_variance_report.budget_variance_report as bvr_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext budget_variance_report unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current = bvr_mod.execute
+
+	if _state.original_budget_variance_execute is None:
+		if current is adapter:
+			_state.last_error = (
+				"budget_variance execute is already the adapter but original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_budget_variance_execute = current
+
+	original = _state.original_budget_variance_execute
+	_state.adapter_budget_variance_execute = adapter
+	set_original_budget_variance_execute(original)
+
+	if current is not adapter:
+		bvr_mod.execute = adapter
+
+	logger.info("Calendar Budget Variance execute patch applied")
 	return PatchStatus.APPLIED
 
 

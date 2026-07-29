@@ -53,9 +53,11 @@ Stored dates remain Gregorian. Display Calendar never participates.
 
 Equal split still uses stock `Budget.add_allocated_amount` → `flt(..., 3)`. Only period boundaries change for Jalali.
 
-## Phase 3c preview
+## Phase 3c
 
-Budget Variance / `controllers.trends.get_period_date_ranges` should consume `BusinessPeriodEngine` next — not reimplement month arithmetic.
+See `docs/budget_variance_trends.md` — Trends `get_period_date_ranges` and Budget
+Variance `execute` adapters consume `BusinessPeriodEngine` via
+`apply_calendar_patches()`.
 
 ## Files
 
@@ -63,3 +65,4 @@ Budget Variance / `controllers.trends.get_period_date_ranges` should consume `Bu
 - `persian_calendar/calendar/integrations/monthly_distribution.py`
 - `persian_calendar/calendar/patches.py` (MD free-function targets added)
 - `docs/business_period_engine.md` (see also)
+- `docs/budget_variance_trends.md` (Phase 3c)
