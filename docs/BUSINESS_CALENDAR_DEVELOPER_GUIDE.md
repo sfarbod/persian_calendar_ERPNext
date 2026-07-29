@@ -554,7 +554,23 @@ Free functions on `erpnext.stock.report.stock_analytics.stock_analytics`:
 
 See `integrations/stock_analytics.py`, `docs/stock_analytics.md`, and `test_stock_analytics.py`.
 
-**Recipes count: 9**
+### Recipe J — Public SDK / new adapter (Phase 4b)
+
+```python
+from persian_calendar.api import (
+    apply_calendar_patches,
+    build_jalali_periods,
+    should_use_jalali_engine,
+    release_check,
+)
+```
+
+1. Prefer `persian_calendar.api` over deep imports.
+2. Use `adapter_helpers` + `patch_sdk` for new free-function adapters.
+3. Register contracts, registry row, and `apply_calendar_patches` wiring.
+4. See `docs/SDK.md` and `calendar/adapter_template.py`.
+
+**Recipes count: 10**
 
 ---
 
@@ -588,6 +604,8 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`stock_analytics.md`](stock_analytics.md) | Stock Analytics + manufacturing rebinds |
 | [`BUSINESS_CALENDAR_PHASE3_RELEASE.md`](BUSINESS_CALENDAR_PHASE3_RELEASE.md) | Phase 3 Final release readiness |
 | [`UPGRADE_GUIDE.md`](UPGRADE_GUIDE.md) | Phase 4a upgrade safety / diagnostics |
+| [`SDK.md`](SDK.md) | Phase 4b extension SDK |
+| [`API_REFERENCE.md`](API_REFERENCE.md) | Public `persian_calendar.api` surface |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---

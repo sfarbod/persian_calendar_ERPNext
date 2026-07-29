@@ -33,19 +33,26 @@ This adapter is independent of ``controllers.trends.get_period_date_ranges``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
 from typing import Any
 
 import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from persian_calendar.calendar.engine import CalendarEngine
-from persian_calendar.calendar.period_engine import BusinessPeriod, BusinessPeriodEngine
+from persian_calendar.calendar.adapter_helpers import (
+	build_jalali_periods,
+	companies_from_filters,
+	company_from_filters,
+	lookup_period_key,
+	period_bounds_index,
+	range_from_filters,
+	report_locale,
+	should_use_jalali_engine,
+)
+from persian_calendar.calendar.period_engine import BusinessPeriod
 from persian_calendar.calendar.period_labels import format_period_label
 from persian_calendar.calendar.resolve import (
 	BUSINESS_CALENDAR_GREGORIAN,
-	BUSINESS_CALENDAR_JALALI,
 	get_business_calendar_for_company,
 )
 
@@ -95,29 +102,11 @@ def get_original_sales_analytics_methods():
 
 
 def _primary_company(filters) -> str | None:
-	company = None
-	if filters is not None:
-		if hasattr(filters, "get"):
-			company = filters.get("company")
-		else:
-			company = getattr(filters, "company", None)
-	if isinstance(company, list | tuple):
-		return company[0] if company else None
-	return company
+	return company_from_filters(filters)
 
 
 def _companies_list(filters) -> list[str]:
-	company = None
-	if filters is not None:
-		if hasattr(filters, "get"):
-			company = filters.get("company")
-		else:
-			company = getattr(filters, "company", None)
-	if not company:
-		return []
-	if isinstance(company, list | tuple):
-		return [c for c in company if c]
-	return [company]
+	return companies_from_filters(filters)
 
 
 def validate_companies_business_calendar(companies: list[str]) -> str:
@@ -140,49 +129,22 @@ def validate_companies_business_calendar(companies: list[str]) -> str:
 def _should_use_jalali_engine(analytics) -> bool:
 	"""True when Jalali BC and range is Monthly/Quarterly/Yearly."""
 	filters = analytics.filters
-	rang = filters.get("range") if hasattr(filters, "get") else getattr(filters, "range", None)
-	if rang == "Weekly":
-		return False
-	if rang not in _JALALI_ENGINE_RANGES:
-		return False
-	company = _primary_company(filters)
-	if not company:
-		return False
-	return get_business_calendar_for_company(company) == BUSINESS_CALENDAR_JALALI
-
-
-def _snap_jalali_start(from_date: date, rang: str, company: str | None = None) -> date:
-	"""Mirror stock month/quarter/FY snap using Jalali business months / Fiscal Year."""
-	cal = CalendarEngine.jalali()
-	from_date = getdate(from_date)
-	if rang == "Monthly":
-		return cal.month_start(from_date)
-	if rang == "Quarterly":
-		import jdatetime
-
-		j = jdatetime.date.fromgregorian(date=from_date)
-		q_month = ((j.month - 1) // 3) * 3 + 1
-		return jdatetime.date(j.year, q_month, 1).togregorian()
-	# Yearly — stock uses Fiscal Year start (Gregorian storage dates on FY DocType)
-	from erpnext.accounts.utils import get_fiscal_year
-
-	if company:
-		return getdate(get_fiscal_year(from_date, company=company)[1])
-	return getdate(get_fiscal_year(from_date)[1])
+	return should_use_jalali_engine(
+		company=_primary_company(filters),
+		rang=range_from_filters(filters),
+		allowed_ranges=_JALALI_ENGINE_RANGES,
+		get_bc=get_business_calendar_for_company,
+	)
 
 
 def _build_jalali_periods(analytics) -> list[BusinessPeriod]:
-	rang = analytics.filters.range
-	company = _primary_company(analytics.filters)
-	from_date = _snap_jalali_start(analytics.filters.from_date, rang, company=company)
-	to_date = getdate(analytics.filters.to_date)
-	if to_date < from_date:
-		return []
-	return BusinessPeriodEngine.generate(
-		start_date=from_date,
-		end_date=to_date,
-		periodicity=rang,
-		provider=CalendarEngine.jalali(),
+	return build_jalali_periods(
+		analytics.filters.from_date,
+		analytics.filters.to_date,
+		analytics.filters.range,
+		_primary_company(analytics.filters),
+		snap=True,
+		allow_half_yearly=False,
 	)
 
 
@@ -194,9 +156,7 @@ def _ensure_jalali_period_index(analytics) -> list[BusinessPeriod]:
 	periods = _build_jalali_periods(analytics)
 	analytics._pc_sa_periods = periods
 	analytics._pc_sa_jalali = True
-	# Inclusive date → key lookup without scanning all periods per row when possible:
-	# store ordered boundaries for binary-friendly linear scan (period count ≤ ~53).
-	analytics._pc_sa_bounds = [(bp.from_date, bp.to_date, bp.key) for bp in periods]
+	analytics._pc_sa_bounds = period_bounds_index(periods)
 	return periods
 
 
@@ -235,15 +195,14 @@ def get_period(self, posting_date):
 	if not getattr(self, "_pc_sa_jalali", False):
 		return _original_get_period(self, posting_date)
 
-	posting = getdate(posting_date)
 	bounds = getattr(self, "_pc_sa_bounds", None)
 	if not bounds:
 		_ensure_jalali_period_index(self)
 		bounds = self._pc_sa_bounds
 
-	for start, end, key in bounds:
-		if start <= posting <= end:
-			return key
+	key = lookup_period_key(posting_date, bounds or [])
+	if key is not None:
+		return key
 
 	# Outside generated range — fall back to stock label behaviour (rare edge)
 	return _original_get_period(self, posting_date)
@@ -257,8 +216,7 @@ def get_columns(self):
 	if not getattr(self, "_pc_sa_jalali", False):
 		return _original_get_columns(self)
 
-	lang = getattr(frappe.local, "lang", None) or "en"
-	locale = "fa" if lang in ("fa", "ar") else "en"
+	locale = report_locale()
 	periods = getattr(self, "_pc_sa_periods", None) or []
 	period_by_end = {bp.to_date: bp for bp in periods}
 

@@ -141,3 +141,5 @@ Treat `FAIL` as a hard CI failure. Treat `WARNING` as optional fail (recommended
 | [`ARCHITECTURE_BUSINESS_CALENDAR.md`](ARCHITECTURE_BUSINESS_CALENDAR.md) | Frozen architecture + upgrade checklist |
 | [`BUSINESS_CALENDAR_PHASE3_RELEASE.md`](BUSINESS_CALENDAR_PHASE3_RELEASE.md) | Phase 3 readiness |
 | [`BUSINESS_CALENDAR_DEVELOPER_GUIDE.md`](BUSINESS_CALENDAR_DEVELOPER_GUIDE.md) | Extension recipes |
+| [`SDK.md`](SDK.md) | Phase 4b public API / adapter workflow |
+| [`API_REFERENCE.md`](API_REFERENCE.md) | `persian_calendar.api` symbols |

@@ -164,3 +164,10 @@ Not a substitute for full ERPNext CI green or E2E desk sign-off on every report 
 - This release report.
 
 **No new ERPNext module integrations. No architecture redesign. No version bump.**
+
+---
+
+## Post–Phase 3 notes
+
+- **Phase 4a** — Upgrade safety (`docs/UPGRADE_GUIDE.md`, contract tests, diagnostics).
+- **Phase 4b** — Public SDK (`persian_calendar.api`, `docs/SDK.md`); no business behaviour changes.

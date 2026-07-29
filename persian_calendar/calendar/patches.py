@@ -825,13 +825,9 @@ def _rebind_module_attr(
 	attr_name: str = "get_period_list",
 ) -> bool:
 	"""Replace ``mod.<attr_name>`` only if it is the original stock function object."""
-	current = getattr(mod, attr_name, None)
-	if current is None:
-		return False
-	if current is original:
-		setattr(mod, attr_name, adapter)
-		return True
-	return False
+	from persian_calendar.calendar.patch_sdk import rebind_module_attr
+
+	return rebind_module_attr(mod, original, adapter, attr_name)
 
 
 def _loaded_known_consumers_still_on_original(

@@ -39,15 +39,25 @@ Independent of Trends and Sales Analytics patch targets.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
 from typing import Any
 
 import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from persian_calendar.calendar.engine import CalendarEngine
-from persian_calendar.calendar.period_engine import BusinessPeriod, BusinessPeriodEngine
+from persian_calendar.calendar.adapter_helpers import (
+	build_jalali_periods,
+	company_from_filters,
+	lookup_period_key,
+	period_bounds_index,
+	period_by_end_index,
+	range_from_filters,
+	report_locale,
+	resolve_business_calendar,
+	set_attr_or_item,
+	should_use_jalali_engine,
+)
+from persian_calendar.calendar.period_engine import BusinessPeriod
 from persian_calendar.calendar.period_labels import format_period_label
 from persian_calendar.calendar.resolve import (
 	BUSINESS_CALENDAR_GREGORIAN,
@@ -102,24 +112,11 @@ def get_original_stock_analytics_functions():
 
 
 def _company(filters) -> str | None:
-	if not filters:
-		return None
-	if hasattr(filters, "get"):
-		return filters.get("company")
-	return getattr(filters, "company", None)
+	return company_from_filters(filters)
 
 
 def _range(filters) -> str | None:
-	if hasattr(filters, "get"):
-		return filters.get("range")
-	return getattr(filters, "range", None)
-
-
-def _set_cache(filters, key: str, value) -> None:
-	try:
-		filters[key] = value
-	except Exception:
-		setattr(filters, key, value)
+	return range_from_filters(filters)
 
 
 def _resolve_bc_once(filters) -> str:
@@ -127,9 +124,12 @@ def _resolve_bc_once(filters) -> str:
 	cached = getattr(filters, _CTX_BC_RESOLVED, None)
 	if cached is not None:
 		return cached
-	company = _company(filters)
-	bc = get_business_calendar_for_company(company) if company else BUSINESS_CALENDAR_GREGORIAN
-	_set_cache(filters, _CTX_BC_RESOLVED, bc)
+	bc = resolve_business_calendar(
+		_company(filters),
+		get_bc=get_business_calendar_for_company,
+		default=BUSINESS_CALENDAR_GREGORIAN,
+	)
+	set_attr_or_item(filters, _CTX_BC_RESOLVED, bc)
 	return bc
 
 
@@ -140,45 +140,14 @@ def _should_use_jalali_engine(filters) -> bool:
 	return _resolve_bc_once(filters) == BUSINESS_CALENDAR_JALALI
 
 
-def _snap_jalali_start(from_date: date, rang: str, company: str | None) -> date:
-	"""Mirror stock floor using Jalali months / Fiscal Year (Gregorian storage).
-
-	Quarter / half-year first-day snap mirrors sales_analytics (jdatetime month
-	index only — period generation still goes through BusinessPeriodEngine).
-	"""
-	cal = CalendarEngine.jalali()
-	from_date = getdate(from_date)
-	if rang == "Monthly":
-		return cal.month_start(from_date)
-	if rang in ("Quarterly", "Half-Yearly"):
-		import jdatetime
-
-		j = jdatetime.date.fromgregorian(date=from_date)
-		if rang == "Quarterly":
-			q_month = ((j.month - 1) // 3) * 3 + 1
-			return jdatetime.date(j.year, q_month, 1).togregorian()
-		h_month = 1 if j.month <= 6 else 7
-		return jdatetime.date(j.year, h_month, 1).togregorian()
-	# Yearly — Fiscal Year start (Gregorian storage on FY DocType)
-	from erpnext.accounts.utils import get_fiscal_year
-
-	if company:
-		return getdate(get_fiscal_year(from_date, company=company)[1])
-	return getdate(get_fiscal_year(from_date)[1])
-
-
 def _build_jalali_periods(filters) -> list[BusinessPeriod]:
-	rang = _range(filters)
-	company = _company(filters)
-	from_date = _snap_jalali_start(filters.from_date, rang, company)
-	to_date = getdate(filters.to_date)
-	if to_date < from_date:
-		return []
-	return BusinessPeriodEngine.generate(
-		start_date=from_date,
-		end_date=to_date,
-		periodicity=rang,
-		provider=CalendarEngine.jalali(),
+	return build_jalali_periods(
+		filters.from_date,
+		filters.to_date,
+		_range(filters),
+		_company(filters),
+		snap=True,
+		allow_half_yearly=True,
 	)
 
 
@@ -187,16 +156,16 @@ def _ensure_context(filters) -> list[BusinessPeriod]:
 	if cached is not None and getattr(filters, _CTX_JALALI, False):
 		return cached
 	periods = _build_jalali_periods(filters)
-	_set_cache(filters, _CTX_JALALI, True)
-	_set_cache(filters, _CTX_PERIODS, periods)
-	_set_cache(filters, _CTX_BOUNDS, [(bp.from_date, bp.to_date, bp.key) for bp in periods])
-	_set_cache(filters, _CTX_BY_END, {bp.to_date: bp for bp in periods})
+	set_attr_or_item(filters, _CTX_JALALI, True)
+	set_attr_or_item(filters, _CTX_PERIODS, periods)
+	set_attr_or_item(filters, _CTX_BOUNDS, period_bounds_index(periods))
+	set_attr_or_item(filters, _CTX_BY_END, period_by_end_index(periods))
 	return periods
 
 
 def _clear_jalali_flag(filters) -> None:
-	_set_cache(filters, _CTX_JALALI, False)
-	_set_cache(filters, _CTX_PERIODS, None)
+	set_attr_or_item(filters, _CTX_JALALI, False)
+	set_attr_or_item(filters, _CTX_PERIODS, None)
 
 
 def get_period_date_ranges(filters):
@@ -233,11 +202,9 @@ def get_period(posting_date, filters):
 	if not getattr(filters, _CTX_JALALI, False):
 		_ensure_context(filters)
 
-	posting = getdate(posting_date)
-	bounds = getattr(filters, _CTX_BOUNDS, None) or []
-	for start, end, key in bounds:
-		if start <= posting <= end:
-			return key
+	key = lookup_period_key(posting_date, getattr(filters, _CTX_BOUNDS, None) or [])
+	if key is not None:
+		return key
 	return _original_get_period(posting_date, filters)
 
 
@@ -249,8 +216,7 @@ def get_period_columns(filters):
 	if not _should_use_jalali_engine(filters):
 		return _original_get_period_columns(filters)
 
-	lang = getattr(frappe.local, "lang", None) or "en"
-	locale = "fa" if lang in ("fa", "ar") else "en"
+	locale = report_locale()
 	ranges = get_period_date_ranges(filters)
 	by_end = getattr(filters, _CTX_BY_END, {}) or {}
 	period_columns = []

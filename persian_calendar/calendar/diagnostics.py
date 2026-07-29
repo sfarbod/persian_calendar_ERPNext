@@ -472,6 +472,12 @@ def format_report(report: DiagnosticReport) -> str:
 	lines.append(f"PatchStatus        : {report.patch_status}")
 	lines.append(f"Sales patched      : {report.patch_details.get('sales_analytics_patched')}")
 	lines.append(f"Stock patched      : {report.patch_details.get('stock_analytics_patched')}")
+	try:
+		from persian_calendar.calendar.registry import implemented_modules
+
+		lines.append(f"Registry modules   : {len(implemented_modules())} implemented/helper")
+	except Exception:
+		pass
 	lines.append("")
 	lines.append("Registered contracts:")
 	for cid in report.patch_details.get("registered_targets") or []:
