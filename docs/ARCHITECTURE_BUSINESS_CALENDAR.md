@@ -954,5 +954,6 @@ The framework is **fit for frozen use** through Phase 3d-2 as the accounting-per
 | `docs/sales_purchase_analytics.md` | Phase 3d-1 Sales / Purchase Analytics |
 | `docs/stock_analytics.md` | Phase 3d-2 Stock Analytics + manufacturing rebinds |
 | `docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md` | Phase 3 Final hardening / release readiness |
+| `docs/UPGRADE_GUIDE.md` | Phase 4a upgrade safety, diagnostics, contract recovery |
 
 This Architecture Freeze is the authoritative overview; module docs remain detailed companions.

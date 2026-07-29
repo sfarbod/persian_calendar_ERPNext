@@ -587,6 +587,7 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`sales_purchase_analytics.md`](sales_purchase_analytics.md) | Sales / Purchase Analytics |
 | [`stock_analytics.md`](stock_analytics.md) | Stock Analytics + manufacturing rebinds |
 | [`BUSINESS_CALENDAR_PHASE3_RELEASE.md`](BUSINESS_CALENDAR_PHASE3_RELEASE.md) | Phase 3 Final release readiness |
+| [`UPGRADE_GUIDE.md`](UPGRADE_GUIDE.md) | Phase 4a upgrade safety / diagnostics |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---
