@@ -66,6 +66,7 @@ class TestErpnextContracts(unittest.TestCase):
 			"api.toshamshi",
 			"api.toshamsi",
 			"utils.jalali.toshamshi",
+			"spa.execute",
 		}
 		missing = required - ids
 		self.assertFalse(

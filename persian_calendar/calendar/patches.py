@@ -51,6 +51,7 @@ FS_MODULE_PATH = "erpnext.accounts.report.financial_statements"
 MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribution"
 TRENDS_MODULE_PATH = "erpnext.controllers.trends"
 BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
+SPA_MODULE_PATH = "erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics"
 SALES_ANALYTICS_MODULE_PATH = "erpnext.selling.report.sales_analytics.sales_analytics"
 STOCK_ANALYTICS_MODULE_PATH = "erpnext.stock.report.stock_analytics.stock_analytics"
 
@@ -104,6 +105,10 @@ class PatchState:
 	# Budget Variance report execute
 	original_budget_variance_execute: Callable[..., Any] | None = None
 	adapter_budget_variance_execute: Callable[..., Any] | None = None
+	# Sales Pipeline Analytics execute (CRM)
+	original_sales_pipeline_execute: Callable[..., Any] | None = None
+	adapter_sales_pipeline_execute: Callable[..., Any] | None = None
+	sales_pipeline_patched: bool = False
 	# Sales / Purchase Analytics (shared Analytics class methods)
 	original_sa_get_period_date_ranges: Callable[..., Any] | None = None
 	original_sa_get_period: Callable[..., Any] | None = None
@@ -169,6 +174,7 @@ def reset_calendar_patches_for_tests() -> None:
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
 	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
 	from persian_calendar.calendar.integrations import sales_analytics as sa_adapter_mod
+	from persian_calendar.calendar.integrations import sales_pipeline_analytics as spa_adapter_mod
 	from persian_calendar.calendar.integrations import stock_analytics as stk_adapter_mod
 	from persian_calendar.calendar.integrations import trends as trends_adapter_mod
 
@@ -223,11 +229,18 @@ def reset_calendar_patches_for_tests() -> None:
 			if getattr(bvr_mod, "execute", None) is _state.adapter_budget_variance_execute:
 				bvr_mod.execute = _state.original_budget_variance_execute
 
+	if _state.original_sales_pipeline_execute is not None:
+		spa_mod = sys.modules.get(SPA_MODULE_PATH)
+		if spa_mod is not None and _state.adapter_sales_pipeline_execute is not None:
+			if getattr(spa_mod, "execute", None) is _state.adapter_sales_pipeline_execute:
+				spa_mod.execute = _state.original_sales_pipeline_execute
+
 	fs_adapter_mod._original_get_period_list = None
 	md_adapter_mod._original_get_periodwise_distribution_data = None
 	md_adapter_mod._original_get_percentage = None
 	trends_adapter_mod._original_get_period_date_ranges = None
 	bvr_adapter_mod._original_execute = None
+	spa_adapter_mod._original_execute = None
 	sa_adapter_mod._original_get_period_date_ranges = None
 	sa_adapter_mod._original_get_period = None
 	sa_adapter_mod._original_get_columns = None
@@ -248,10 +261,12 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3c: Trends ``get_period_date_ranges`` + Budget Variance ``execute``.
 	Phase 3d-1: Sales / Purchase Analytics ``Analytics`` methods.
 	Phase 3d-2: Stock Analytics free functions + manufacturing rebinds.
+	Phase 5A-3: Sales Pipeline Analytics ``execute``.
 
 	Registered free-function / method targets (in order):
 	FS ``get_period_list`` → MD periodwise/% → Trends ``get_period_date_ranges``
-	→ BVR ``execute`` → Sales Analytics methods → Stock Analytics helpers.
+	→ BVR ``execute`` → Sales Analytics methods → Stock Analytics helpers
+	→ Sales Pipeline Analytics ``execute``.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -284,6 +299,11 @@ def apply_calendar_patches() -> PatchStatus:
 	if stk_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
 		_state.status = stk_status
 		return stk_status
+
+	spa_status = _apply_sales_pipeline_patch()
+	if spa_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = spa_status
+		return spa_status
 
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
@@ -742,6 +762,54 @@ def _apply_stock_analytics_patch() -> PatchStatus:
 		logger.info("Calendar Stock Analytics patch applied; rebound: %s", ", ".join(rebound))
 	else:
 		logger.info("Calendar Stock Analytics patch applied (no preloaded consumers to rebind)")
+	return PatchStatus.APPLIED
+
+
+def _apply_sales_pipeline_patch() -> PatchStatus:
+	"""Patch Sales Pipeline Analytics ``execute`` for Jalali Business Calendar periods."""
+	global _state
+
+	from persian_calendar.calendar.integrations.sales_pipeline_analytics import execute as adapter
+	from persian_calendar.calendar.integrations.sales_pipeline_analytics import (
+		set_original_sales_pipeline_execute,
+	)
+
+	if (
+		_state.original_sales_pipeline_execute is not None
+		and _state.adapter_sales_pipeline_execute is adapter
+	):
+		spa_mod = sys.modules.get(SPA_MODULE_PATH)
+		if spa_mod is not None and getattr(spa_mod, "execute", None) is adapter:
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics as spa_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext sales_pipeline_analytics unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current = spa_mod.execute
+
+	if _state.original_sales_pipeline_execute is None:
+		if current is adapter:
+			_state.last_error = (
+				"sales_pipeline_analytics.execute is already the adapter but "
+				"original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_sales_pipeline_execute = current
+
+	original = _state.original_sales_pipeline_execute
+	_state.adapter_sales_pipeline_execute = adapter
+	set_original_sales_pipeline_execute(original)
+
+	if current is not adapter:
+		spa_mod.execute = adapter
+
+	_state.sales_pipeline_patched = True
+	logger.info("Calendar Sales Pipeline Analytics execute patch applied")
 	return PatchStatus.APPLIED
 
 

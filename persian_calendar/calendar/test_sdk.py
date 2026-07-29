@@ -57,8 +57,16 @@ class TestRegistry(unittest.TestCase):
 
 	def test_deferred_marked(self):
 		deferred = {m.name for m in INTEGRATED_MODULES if m.status == "deferred"}
-		self.assertIn("CRM Pipeline Analytics", deferred)
+		self.assertNotIn("CRM Pipeline Analytics", deferred)
 		self.assertIn("MRP / MPS", deferred)
+		self.assertIn("Issue Analytics", deferred)
+
+	def test_crm_pipeline_implemented(self):
+		names = {m.name: m for m in INTEGRATED_MODULES}
+		mod = names["CRM Pipeline Analytics"]
+		self.assertEqual(mod.status, "implemented")
+		self.assertTrue(mod.patch_targets)
+		self.assertIn("spa.execute", mod.diagnostics_ids)
 
 	def test_conversion_utility_registered(self):
 		util = [m for m in INTEGRATED_MODULES if m.status == "public_utility"]

@@ -125,18 +125,15 @@ class TestCrmReportDisplayContract(FrappeTestCase):
 				continue
 			self.assertIn('fieldtype: "Date"', js, f"{folder} date filters must be Date")
 
-	def test_sales_pipeline_grouping_remains_gregorian_labels(self):
-		"""Phase 5A-2 must not claim Business Calendar for pipeline months."""
-		py = _load_report_py("sales_pipeline_analytics")
-		self.assertIn("MonthName", py)
-		self.assertIn('strftime("%B")', py)
+	def test_sales_pipeline_adapter_module_exists(self):
+		"""Phase 5A-3 implemented Business Calendar adapter (display phase left this deferred)."""
 		adapter = Path(
 			frappe.get_app_path("persian_calendar"),
 			"calendar",
 			"integrations",
-			"crm_pipeline.py",
+			"sales_pipeline_analytics.py",
 		)
-		self.assertFalse(adapter.is_file(), "CRM Pipeline BC adapter must stay deferred")
+		self.assertTrue(adapter.is_file())
 
 	def test_first_response_grid_date_column_typed(self):
 		py = _load_report_py("first_response_time_for_opportunity")
@@ -302,7 +299,8 @@ class TestCrmDisplayRegistry(FrappeTestCase):
 		self.assertIn("CRM_DISPLAY_CALENDAR", mod.documentation)
 
 		pipeline = names["CRM Pipeline Analytics"]
-		self.assertEqual(pipeline.status, "deferred")
+		self.assertEqual(pipeline.status, "implemented")
+		self.assertIn("spa.execute", pipeline.diagnostics_ids)
 
 
 if __name__ == "__main__":

@@ -253,6 +253,19 @@ CONTRACTS: tuple[CallableContract, ...] = (
 		prefer_captured_original=False,
 		notes="Legacy import path used by Print Formats and erpnext_extensions.",
 	),
+	# Sales Pipeline Analytics (Phase 5A-3)
+	CallableContract(
+		id="spa.execute",
+		module="erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics",
+		attr="execute",
+		params=(ParamSpec("filters", None),),
+		prefer_captured_original=True,
+		original_state_attr="original_sales_pipeline_execute",
+		notes=(
+			"Returns (columns, data, None, chart). Groups by expected_closing via "
+			"Gregorian Month/Quarter SQL; Jalali path uses BusinessPeriodEngine."
+		),
+	),
 )
 
 

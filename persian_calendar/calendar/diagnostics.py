@@ -36,6 +36,7 @@ from persian_calendar.calendar.patches import (
 	MD_MODULE_PATH,
 	MD_PERIODWISE_CONSUMERS,
 	SALES_ANALYTICS_MODULE_PATH,
+	SPA_MODULE_PATH,
 	STOCK_ANALYTICS_MODULE_PATH,
 	STOCK_ANALYTICS_PERIOD_CONSUMERS,
 	TRENDS_MODULE_PATH,
@@ -54,12 +55,12 @@ class ReleaseLevel(str, Enum):
 
 DEFERRED_MODULES = (
 	"Forecast redesign (Phase 3e)",
-	"CRM Pipeline Analytics",
 	"Issue Analytics",
 	"Core MRP / MPS",
 	"HRMS",
 	"Trends presentation-label cleanup (Phase 6)",
 	"Subscription / Auto Repeat / Maintenance",
+	"Customer Acquisition Business Calendar",
 )
 
 TECHNICAL_DEBT = (
@@ -70,7 +71,7 @@ TECHNICAL_DEBT = (
 	"Sales/Stock quarter-half first-day snap still uses small jdatetime helper",
 	"toshamshi: out-of-range month/day strings may overflow via jdatetime (not rejected)",
 	"toshamshi: years 1601–1699 treated as Gregorian (heuristic gap)",
-	"CRM: Sales Pipeline month labels English Gregorian (BC deferred); Appointment email uses format_datetime",
+	"CRM: Appointment email uses format_datetime (Gregorian); First Response chart axis raw ISO",
 )
 
 UPGRADE_RISKS = (
@@ -246,6 +247,7 @@ def validate_patch_registry() -> list[str]:
 		(MD_MODULE_PATH, "get_percentage", "adapter_get_percentage", True),
 		(TRENDS_MODULE_PATH, "get_period_date_ranges", "adapter_get_period_date_ranges", True),
 		(BVR_MODULE_PATH, "execute", "adapter_budget_variance_execute", True),
+		(SPA_MODULE_PATH, "execute", "adapter_sales_pipeline_execute", True),
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period_date_ranges", "adapter_stk_get_period_date_ranges", True),
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period", "adapter_stk_get_period", True),
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period_columns", "adapter_stk_get_period_columns", True),
@@ -264,6 +266,7 @@ def validate_patch_registry() -> list[str]:
 			"adapter_get_percentage": "original_get_percentage",
 			"adapter_get_period_date_ranges": "original_get_period_date_ranges",
 			"adapter_budget_variance_execute": "original_budget_variance_execute",
+			"adapter_sales_pipeline_execute": "original_sales_pipeline_execute",
 			"adapter_stk_get_period_date_ranges": "original_stk_get_period_date_ranges",
 			"adapter_stk_get_period": "original_stk_get_period",
 			"adapter_stk_get_period_columns": "original_stk_get_period_columns",
@@ -326,6 +329,7 @@ def validate_patch_registry() -> list[str]:
 		MD_MODULE_PATH,
 		TRENDS_MODULE_PATH,
 		BVR_MODULE_PATH,
+		SPA_MODULE_PATH,
 		SALES_ANALYTICS_MODULE_PATH,
 		STOCK_ANALYTICS_MODULE_PATH,
 		"erpnext.accounts.doctype.budget.budget",
@@ -484,6 +488,7 @@ def build_report() -> DiagnosticReport:
 		"stk_rebound": list(state.stk_rebound_modules),
 		"sales_analytics_patched": state.sales_analytics_patched,
 		"stock_analytics_patched": state.stock_analytics_patched,
+		"sales_pipeline_patched": state.sales_pipeline_patched,
 		"registered_targets": [c.id for c in CONTRACTS],
 	}
 
@@ -591,6 +596,7 @@ def format_report(report: DiagnosticReport) -> str:
 	lines.append(f"PatchStatus        : {report.patch_status}")
 	lines.append(f"Sales patched      : {report.patch_details.get('sales_analytics_patched')}")
 	lines.append(f"Stock patched      : {report.patch_details.get('stock_analytics_patched')}")
+	lines.append(f"CRM Pipeline patched: {report.patch_details.get('sales_pipeline_patched')}")
 	try:
 		from persian_calendar.calendar.registry import implemented_modules
 

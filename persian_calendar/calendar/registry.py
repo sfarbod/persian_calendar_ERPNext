@@ -217,16 +217,21 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		compatibility_note="Inherits global desk Display Calendar; no CRM-specific display adapters",
 		diagnostics_ids=(),
 		mechanism="jalali_support.bundle.js + datetime_normalizer; explicit toshamshi for print/email",
-		notes="Limitations: Pipeline English month labels (BC deferred); First Response chart ISO "
-		"axis; Appointment email format_datetime; standard print formatdate. "
-		"Not a Business Calendar integration.",
+		notes="Limitations: First Response chart ISO axis; Appointment email format_datetime; "
+		"standard print formatdate. Not a Business Calendar integration.",
 	),
 	IntegratedModule(
 		name="CRM Pipeline Analytics",
-		status="deferred",
-		patch_targets=(),
-		documentation="docs/CRM_DISPLAY_CALENDAR.md",
-		notes="Business Calendar period bucketing deferred to Phase 5A-3; Display filters already covered",
+		status="implemented",
+		patch_targets=(
+			"erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics.execute",
+		),
+		supported_periods=("Monthly", "Quarterly"),
+		documentation="docs/CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md",
+		compatibility_note="Contract: spa.execute — Business date expected_closing; Company filter",
+		diagnostics_ids=("spa.execute",),
+		mechanism="Module execute wrap; Gregorian → stock; Jalali → BusinessPeriodEngine allocation",
+		notes="Display filters unchanged (5A-2). No Weekly/Half-Yearly/Yearly in upstream UI.",
 	),
 	IntegratedModule(
 		name="Issue Analytics",
