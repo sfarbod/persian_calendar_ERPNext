@@ -273,6 +273,7 @@ execute(filters)
 | **5a-0** | This audit documentation | `docs(calendar): audit crm jalali coverage and toshamshi usage` |
 | **5a-1** | Export `toshamshi` on `persian_calendar.api`; docs `TOSHAMSHI.md`; `toshamsi` alias; tests; **no signature break** | `feat(calendar): expose canonical toshamshi conversion api` (**done**) |
 | **5a-2** | CRM display verification — Outcome A (global coverage; docs/tests only) | `docs/test(calendar): crm display calendar coverage` (**done** — see [`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md)) |
+| **5a-3** | Sales Pipeline Analytics BC adapter (Monthly/Quarterly) | `feat(calendar): support business calendar in sales pipeline analytics` (**done** — see [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md)) |
 | **5a-3** | Sales Pipeline Analytics BC adapter (Python bucketing or proven safe patch) | `feat(calendar): support business calendar in crm analytics` |
 | **5a-4** | Customer Acquisition / remaining period reports if justified | same family |
 | **5a-5** | Contracts, registry, diagnostics, release_check | `test(calendar): add crm jalali compatibility coverage` |

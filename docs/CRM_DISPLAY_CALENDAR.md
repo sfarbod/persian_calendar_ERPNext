@@ -80,7 +80,7 @@ before filters hit the server.
 
 | Report | Date filters | Date columns | Display notes | Business period |
 |--------|--------------|--------------|---------------|-----------------|
-| Sales Pipeline Analytics | Date from/to | Month/Q labels (not Date cols) | Filters **A**; English month labels **E** | Deferred 5A-3 |
+| Sales Pipeline Analytics | Date from/to | Month/Q labels (not Date cols) | Filters **A**; Jalali BC periods in 5A-3 | Implemented 5A-3 |
 | Opportunity Summary by Sales Stage | Date | none | **A** filters | N/A |
 | Lost Opportunity | Date | none | **A** | N/A |
 | Lead Details | Date | none | **A** | N/A |
@@ -151,9 +151,9 @@ Filter chip **values** remain Gregorian machine strings after `user_to_str`.
 
 - Filters with `fieldtype: "Date"` → Jalali picker; queries receive Gregorian.
 - Columns typed Date/Datetime → Jalali cell display.
-- Sales Pipeline Monthly/Quarterly **column labels** stay English Gregorian month
-  names (`strftime("%B")` / SQL `MonthName`). That is **not** Display Calendar —
-  changing it would imply Jalali **business** buckets (Phase 5A-3).
+- Sales Pipeline Monthly/Quarterly **business** labels follow Company Business
+  Calendar when Jalali (Phase 5A-3). Gregorian companies keep upstream English
+  month / Q labels. Display Calendar still does not drive those buckets.
 
 ---
 
@@ -224,7 +224,7 @@ unsupported for automatic preference.
 
 ## 16. Known limitations
 
-1. Sales Pipeline English month / Q labels (business grouping — 5A-3).
+1. Sales Pipeline Gregorian companies still show English month / Q labels (upstream).
 2. First Response chart X-axis raw ISO dates (grid column is fine).
 3. Appointment confirmed email `format_datetime` Gregorian.
 4. Standard Print `formatdate` Gregorian unless template uses `toshamshi`.
@@ -236,7 +236,7 @@ unsupported for automatic preference.
 
 ## 17. Deferred Business Calendar work
 
-- Sales Pipeline Analytics Monthly/Quarterly → `BusinessPeriodEngine` (5A-3)
+- ~~Sales Pipeline Analytics Monthly/Quarterly → `BusinessPeriodEngine` (5A-3)~~ **done** — see [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md)
 - Customer Acquisition Monthly (Selling, CRM-adjacent) — later slice
 - Dashboard chart business-period axes
 

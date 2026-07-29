@@ -155,5 +155,10 @@ depend on them. This is independent of Business Calendar patch health.
 ### CRM Display (Phase 5A-2)
 
 CRM typed Date/Datetime surfaces inherit global desk Display Calendar. Registry
-status: `display_covered`. Do not confuse Pipeline month **labels** with Display
-Calendar — Business Calendar for CRM remains deferred.
+status: `display_covered`.
+
+### CRM Sales Pipeline Business Calendar (Phase 5A-3)
+
+`spa.execute` contract + module execute patch. Jalali Company →
+`BusinessPeriodEngine` on `expected_closing`. See
+[`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md).

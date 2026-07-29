@@ -600,7 +600,20 @@ Display Calendar. No CRM-specific display adapter is required.
    that is Business Calendar work (Phase 5A-3).
 4. See [`CRM_DISPLAY_CALENDAR.md`](CRM_DISPLAY_CALENDAR.md).
 
-**Recipes count: 12**
+### Recipe M — Sales Pipeline Analytics Business Calendar (Phase 5A-3)
+
+```python
+from persian_calendar.api import apply_calendar_patches, get_business_calendar_for_company
+apply_calendar_patches()
+# Company with business_calendar=Jalali → Monthly/Quarterly via BusinessPeriodEngine
+```
+
+1. Patch seam: module `execute` wrap (Gregorian → stock; Jalali → adapter).
+2. Business date: `Opportunity.expected_closing`.
+3. Do not use SQL MONTH/QUARTER or `toshamshi` for allocation.
+4. See [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md).
+
+**Recipes count: 13**
 
 ---
 

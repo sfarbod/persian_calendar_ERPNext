@@ -404,7 +404,8 @@ Do not claim compatibility with versions that were not tested.
 | Stock Analytics | Implemented (Phase 3d-2) | Free functions via `integrations/stock_analytics.py`; Weekly → stock; carry-forward preserved |
 | Production / WO / Job Card Summary | Implemented (Phase 3d-2) | Identity-rebind of Stock Analytics period helpers only — not core MRP |
 | CRM Display Calendar (forms/lists/report filters) | Verified global coverage (Phase 5A-2) | No CRM display adapters; see `docs/CRM_DISPLAY_CALENDAR.md` |
-| CRM Pipeline / Issue Analytics (Business Calendar) | Not started | Deferred (5A-3+) |
+| CRM Pipeline Analytics (Business Calendar) | Implemented (Phase 5A-3) | `spa.execute`; Monthly/Quarterly; see `docs/CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md` |
+| Issue Analytics (Business Calendar) | Not started | Deferred |
 | Forecast | Not started | Deferred (Phase 3e) |
 | Manufacturing (MRP / MPS) | Not started | Deferred (Phase 4) |
 | HRMS | Not started | Deferred (Phase 5) |
@@ -636,7 +637,8 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | HRMS | Not started |
 | Subscription / Auto Repeat / Maintenance | Not started |
 | CRM Display Calendar | Phase 5A-2 verified (global desk) |
-| CRM / Support analytics (BC) | Not started |
+| CRM Pipeline Analytics (BC) | Phase 5A-3 implemented |
+| Issue / Support analytics (BC) | Not started |
 | Trends presentation labels | Date ranges may be Jalali-aware while headers still use Gregorian `%b` |
 | Date Picker / Desk UI | Display layer; outside Phases 0–3d business arithmetic |
 | Historical migration | No auto-convert of submitted Budget Distribution / schedules when Business Calendar changes |
