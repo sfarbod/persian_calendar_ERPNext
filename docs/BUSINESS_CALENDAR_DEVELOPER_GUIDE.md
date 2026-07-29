@@ -529,7 +529,19 @@ bc = get_business_calendar_for_company(company)
 provider = CalendarEngine.for_company(company)
 ```
 
-**Recipes count: 7**
+### Recipe H — Sales / Purchase Analytics (Phase 3d-1)
+
+Shared class `erpnext.selling.report.sales_analytics.sales_analytics.Analytics`:
+
+1. Patch class methods via `apply_calendar_patches` (`get_period_date_ranges`, `get_period`, `get_columns`, `get_chart_data`, `update_company_list_for_parent_company`).
+2. Gregorian + Weekly → captured originals.
+3. Jalali Monthly/Quarterly/Yearly → `BusinessPeriodEngine`; bucket id = `BusinessPeriod.key`.
+4. Chart must read `fieldname`, not `scrub(label)`.
+5. Purchase Analytics imports the same class — no duplicate adapter.
+
+See `integrations/sales_analytics.py` and `test_sales_analytics.py`.
+
+**Recipes count: 8**
 
 ---
 

@@ -51,6 +51,7 @@ FS_MODULE_PATH = "erpnext.accounts.report.financial_statements"
 MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribution"
 TRENDS_MODULE_PATH = "erpnext.controllers.trends"
 BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
+SALES_ANALYTICS_MODULE_PATH = "erpnext.selling.report.sales_analytics.sales_analytics"
 
 # Verified importers of get_periodwise_distribution_data
 MD_PERIODWISE_CONSUMERS: tuple[str, ...] = (
@@ -87,6 +88,13 @@ class PatchState:
 	# Budget Variance report execute
 	original_budget_variance_execute: Callable[..., Any] | None = None
 	adapter_budget_variance_execute: Callable[..., Any] | None = None
+	# Sales / Purchase Analytics (shared Analytics class methods)
+	original_sa_get_period_date_ranges: Callable[..., Any] | None = None
+	original_sa_get_period: Callable[..., Any] | None = None
+	original_sa_get_columns: Callable[..., Any] | None = None
+	original_sa_get_chart_data: Callable[..., Any] | None = None
+	original_sa_update_company_list: Callable[..., Any] | None = None
+	sales_analytics_patched: bool = False
 	last_error: str | None = None
 
 
@@ -134,7 +142,19 @@ def reset_calendar_patches_for_tests() -> None:
 	from persian_calendar.calendar.integrations import budget_variance as bvr_adapter_mod
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
 	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
+	from persian_calendar.calendar.integrations import sales_analytics as sa_adapter_mod
 	from persian_calendar.calendar.integrations import trends as trends_adapter_mod
+
+	if _state.sales_analytics_patched and _state.original_sa_get_period_date_ranges is not None:
+		sa_mod = sys.modules.get(SALES_ANALYTICS_MODULE_PATH)
+		if sa_mod is not None and hasattr(sa_mod, "Analytics"):
+			cls = sa_mod.Analytics
+			if cls.get_period_date_ranges is sa_adapter_mod.get_period_date_ranges:
+				cls.get_period_date_ranges = _state.original_sa_get_period_date_ranges
+				cls.get_period = _state.original_sa_get_period
+				cls.get_columns = _state.original_sa_get_columns
+				cls.get_chart_data = _state.original_sa_get_chart_data
+				cls.update_company_list_for_parent_company = _state.original_sa_update_company_list
 
 	if _state.original_get_period_date_ranges is not None:
 		trends_mod = sys.modules.get(TRENDS_MODULE_PATH)
@@ -159,6 +179,11 @@ def reset_calendar_patches_for_tests() -> None:
 	md_adapter_mod._original_get_percentage = None
 	trends_adapter_mod._original_get_period_date_ranges = None
 	bvr_adapter_mod._original_execute = None
+	sa_adapter_mod._original_get_period_date_ranges = None
+	sa_adapter_mod._original_get_period = None
+	sa_adapter_mod._original_get_columns = None
+	sa_adapter_mod._original_get_chart_data = None
+	sa_adapter_mod._original_update_company_list = None
 	_state = PatchState()
 
 
@@ -168,6 +193,7 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3a: Financial Statements ``get_period_list``.
 	Phase 3b: Monthly Distribution ``get_periodwise_distribution_data`` / ``get_percentage``.
 	Phase 3c: Trends ``get_period_date_ranges`` + Budget Variance ``execute``.
+	Phase 3d-1: Sales / Purchase Analytics ``Analytics`` methods.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -190,6 +216,11 @@ def apply_calendar_patches() -> PatchStatus:
 	if bvr_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
 		_state.status = bvr_status
 		return bvr_status
+
+	sa_status = _apply_sales_analytics_patch()
+	if sa_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = sa_status
+		return sa_status
 
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
@@ -475,6 +506,66 @@ def _apply_budget_variance_patch() -> PatchStatus:
 		bvr_mod.execute = adapter
 
 	logger.info("Calendar Budget Variance execute patch applied")
+	return PatchStatus.APPLIED
+
+
+def _apply_sales_analytics_patch() -> PatchStatus:
+	"""Patch shared Sales Analytics ``Analytics`` methods (covers Purchase Analytics)."""
+	global _state
+
+	from persian_calendar.calendar.integrations import sales_analytics as sa_adapter
+	from persian_calendar.calendar.integrations.sales_analytics import (
+		set_original_sales_analytics_methods,
+	)
+
+	if _state.sales_analytics_patched and _state.original_sa_get_period_date_ranges is not None:
+		sa_mod = sys.modules.get(SALES_ANALYTICS_MODULE_PATH)
+		if sa_mod is not None and getattr(sa_mod.Analytics, "get_period_date_ranges", None) is (
+			sa_adapter.get_period_date_ranges
+		):
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.selling.report.sales_analytics.sales_analytics as sa_mod
+	except ImportError as exc:
+		_state.last_error = f"ERPNext sales_analytics unavailable: {exc}"
+		logger.warning(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	cls = sa_mod.Analytics
+	current_ranges = cls.get_period_date_ranges
+
+	if _state.original_sa_get_period_date_ranges is None:
+		if current_ranges is sa_adapter.get_period_date_ranges:
+			_state.last_error = (
+				"Analytics.get_period_date_ranges is already the adapter but original " "was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_sa_get_period_date_ranges = cls.get_period_date_ranges
+		_state.original_sa_get_period = cls.get_period
+		_state.original_sa_get_columns = cls.get_columns
+		_state.original_sa_get_chart_data = cls.get_chart_data
+		_state.original_sa_update_company_list = cls.update_company_list_for_parent_company
+
+	set_original_sales_analytics_methods(
+		_state.original_sa_get_period_date_ranges,
+		_state.original_sa_get_period,
+		_state.original_sa_get_columns,
+		_state.original_sa_get_chart_data,
+		_state.original_sa_update_company_list,
+	)
+
+	cls.get_period_date_ranges = sa_adapter.get_period_date_ranges
+	cls.get_period = sa_adapter.get_period
+	cls.get_columns = sa_adapter.get_columns
+	cls.get_chart_data = sa_adapter.get_chart_data
+	cls.update_company_list_for_parent_company = sa_adapter.update_company_list_for_parent_company
+	_state.sales_analytics_patched = True
+
+	# Purchase Analytics holds a reference to the Analytics class object — method
+	# replacement on the class covers it. No separate free-function rebind.
+	logger.info("Calendar Sales/Purchase Analytics Analytics methods patched")
 	return PatchStatus.APPLIED
 
 
