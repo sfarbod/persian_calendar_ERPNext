@@ -37,6 +37,7 @@ from persian_calendar.calendar.patches import (
 	MD_PERIODWISE_CONSUMERS,
 	SALES_ANALYTICS_MODULE_PATH,
 	SPA_MODULE_PATH,
+	VEHICLE_EXPENSES_MODULE_PATH,
 	STOCK_ANALYTICS_MODULE_PATH,
 	STOCK_ANALYTICS_PERIOD_CONSUMERS,
 	TRENDS_MODULE_PATH,
@@ -57,7 +58,7 @@ DEFERRED_MODULES = (
 	"Forecast redesign (Phase 3e)",
 	"Issue Analytics",
 	"Core MRP / MPS",
-	"HRMS",
+	"HRMS Payroll / Attendance period reports",
 	"Trends presentation-label cleanup (Phase 6)",
 	"Subscription / Auto Repeat / Maintenance",
 	"Customer Acquisition Business Calendar",
@@ -252,6 +253,14 @@ def validate_patch_registry() -> list[str]:
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period", "adapter_stk_get_period", True),
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period_columns", "adapter_stk_get_period_columns", True),
 	]
+	# Optional HRMS target — only validate when importable
+	try:
+		importlib.import_module(VEHICLE_EXPENSES_MODULE_PATH)
+		checks.append(
+			(VEHICLE_EXPENSES_MODULE_PATH, "get_chart_data", "adapter_vehicle_expenses_get_chart_data", True)
+		)
+	except ImportError:
+		pass
 	for mod_path, attr, adapter_attr, must_be_adapter in checks:
 		try:
 			mod = importlib.import_module(mod_path)
@@ -267,6 +276,7 @@ def validate_patch_registry() -> list[str]:
 			"adapter_get_period_date_ranges": "original_get_period_date_ranges",
 			"adapter_budget_variance_execute": "original_budget_variance_execute",
 			"adapter_sales_pipeline_execute": "original_sales_pipeline_execute",
+			"adapter_vehicle_expenses_get_chart_data": "original_vehicle_expenses_get_chart_data",
 			"adapter_stk_get_period_date_ranges": "original_stk_get_period_date_ranges",
 			"adapter_stk_get_period": "original_stk_get_period",
 			"adapter_stk_get_period_columns": "original_stk_get_period_columns",

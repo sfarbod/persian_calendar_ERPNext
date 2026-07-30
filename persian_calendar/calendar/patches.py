@@ -45,6 +45,8 @@ GET_PERIOD_LIST_CONSUMERS: tuple[str, ...] = (
 	"erpnext.selling.report.sales_partner_target_variance_based_on_item_group.item_group_wise_sales_target_variance",
 	# Test module — rebound when loaded so ERPNext suite sees the adapter
 	"erpnext.accounts.report.profit_and_loss_statement.test_profit_and_loss_statement",
+	# HRMS Vehicle Expenses chart (Phase 6A) — imports get_period_list
+	"hrms.hr.report.vehicle_expenses.vehicle_expenses",
 )
 
 FS_MODULE_PATH = "erpnext.accounts.report.financial_statements"
@@ -52,6 +54,7 @@ MD_MODULE_PATH = "erpnext.accounts.doctype.monthly_distribution.monthly_distribu
 TRENDS_MODULE_PATH = "erpnext.controllers.trends"
 BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
 SPA_MODULE_PATH = "erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics"
+VEHICLE_EXPENSES_MODULE_PATH = "hrms.hr.report.vehicle_expenses.vehicle_expenses"
 SALES_ANALYTICS_MODULE_PATH = "erpnext.selling.report.sales_analytics.sales_analytics"
 STOCK_ANALYTICS_MODULE_PATH = "erpnext.stock.report.stock_analytics.stock_analytics"
 
@@ -109,6 +112,10 @@ class PatchState:
 	original_sales_pipeline_execute: Callable[..., Any] | None = None
 	adapter_sales_pipeline_execute: Callable[..., Any] | None = None
 	sales_pipeline_patched: bool = False
+	# HRMS Vehicle Expenses chart (get_chart_data)
+	original_vehicle_expenses_get_chart_data: Callable[..., Any] | None = None
+	adapter_vehicle_expenses_get_chart_data: Callable[..., Any] | None = None
+	vehicle_expenses_patched: bool = False
 	# Sales / Purchase Analytics (shared Analytics class methods)
 	original_sa_get_period_date_ranges: Callable[..., Any] | None = None
 	original_sa_get_period: Callable[..., Any] | None = None
@@ -177,6 +184,7 @@ def reset_calendar_patches_for_tests() -> None:
 	from persian_calendar.calendar.integrations import sales_pipeline_analytics as spa_adapter_mod
 	from persian_calendar.calendar.integrations import stock_analytics as stk_adapter_mod
 	from persian_calendar.calendar.integrations import trends as trends_adapter_mod
+	from persian_calendar.calendar.integrations import vehicle_expenses as ve_adapter_mod
 
 	if _state.sales_analytics_patched and _state.original_sa_get_period_date_ranges is not None:
 		sa_mod = sys.modules.get(SALES_ANALYTICS_MODULE_PATH)
@@ -235,12 +243,19 @@ def reset_calendar_patches_for_tests() -> None:
 			if getattr(spa_mod, "execute", None) is _state.adapter_sales_pipeline_execute:
 				spa_mod.execute = _state.original_sales_pipeline_execute
 
+	if _state.original_vehicle_expenses_get_chart_data is not None:
+		ve_mod = sys.modules.get(VEHICLE_EXPENSES_MODULE_PATH)
+		if ve_mod is not None and _state.adapter_vehicle_expenses_get_chart_data is not None:
+			if getattr(ve_mod, "get_chart_data", None) is _state.adapter_vehicle_expenses_get_chart_data:
+				ve_mod.get_chart_data = _state.original_vehicle_expenses_get_chart_data
+
 	fs_adapter_mod._original_get_period_list = None
 	md_adapter_mod._original_get_periodwise_distribution_data = None
 	md_adapter_mod._original_get_percentage = None
 	trends_adapter_mod._original_get_period_date_ranges = None
 	bvr_adapter_mod._original_execute = None
 	spa_adapter_mod._original_execute = None
+	ve_adapter_mod._original_get_chart_data = None
 	sa_adapter_mod._original_get_period_date_ranges = None
 	sa_adapter_mod._original_get_period = None
 	sa_adapter_mod._original_get_columns = None
@@ -262,11 +277,12 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3d-1: Sales / Purchase Analytics ``Analytics`` methods.
 	Phase 3d-2: Stock Analytics free functions + manufacturing rebinds.
 	Phase 5A-3: Sales Pipeline Analytics ``execute``.
+	Phase 6A: HRMS Vehicle Expenses ``get_chart_data``.
 
 	Registered free-function / method targets (in order):
 	FS ``get_period_list`` → MD periodwise/% → Trends ``get_period_date_ranges``
 	→ BVR ``execute`` → Sales Analytics methods → Stock Analytics helpers
-	→ Sales Pipeline Analytics ``execute``.
+	→ Sales Pipeline Analytics ``execute`` → Vehicle Expenses ``get_chart_data``.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -304,6 +320,11 @@ def apply_calendar_patches() -> PatchStatus:
 	if spa_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
 		_state.status = spa_status
 		return spa_status
+
+	ve_status = _apply_vehicle_expenses_patch()
+	if ve_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = ve_status
+		return ve_status
 
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
@@ -810,6 +831,56 @@ def _apply_sales_pipeline_patch() -> PatchStatus:
 
 	_state.sales_pipeline_patched = True
 	logger.info("Calendar Sales Pipeline Analytics execute patch applied")
+	return PatchStatus.APPLIED
+
+
+def _apply_vehicle_expenses_patch() -> PatchStatus:
+	"""Patch HRMS Vehicle Expenses ``get_chart_data`` to pass Company into get_period_list.
+
+	Soft-skips when HRMS is not installed (optional app).
+	"""
+	global _state
+
+	from persian_calendar.calendar.integrations.vehicle_expenses import get_chart_data as adapter
+	from persian_calendar.calendar.integrations.vehicle_expenses import (
+		set_original_vehicle_expenses_get_chart_data,
+	)
+
+	if (
+		_state.original_vehicle_expenses_get_chart_data is not None
+		and _state.adapter_vehicle_expenses_get_chart_data is adapter
+	):
+		ve_mod = sys.modules.get(VEHICLE_EXPENSES_MODULE_PATH)
+		if ve_mod is not None and getattr(ve_mod, "get_chart_data", None) is adapter:
+			return PatchStatus.APPLIED
+
+	try:
+		import hrms.hr.report.vehicle_expenses.vehicle_expenses as ve_mod
+	except ImportError as exc:
+		logger.info("HRMS Vehicle Expenses unavailable; skipping Phase 6A patch (%s)", exc)
+		return PatchStatus.APPLIED
+
+	current = ve_mod.get_chart_data
+
+	if _state.original_vehicle_expenses_get_chart_data is None:
+		if current is adapter:
+			_state.last_error = (
+				"vehicle_expenses.get_chart_data is already the adapter but "
+				"original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_vehicle_expenses_get_chart_data = current
+
+	original = _state.original_vehicle_expenses_get_chart_data
+	_state.adapter_vehicle_expenses_get_chart_data = adapter
+	set_original_vehicle_expenses_get_chart_data(original)
+
+	if current is not adapter:
+		ve_mod.get_chart_data = adapter
+
+	_state.vehicle_expenses_patched = True
+	logger.info("Calendar HRMS Vehicle Expenses get_chart_data patch applied")
 	return PatchStatus.APPLIED
 
 

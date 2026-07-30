@@ -41,6 +41,8 @@ class CallableContract:
 	prefer_captured_original: bool = True
 	# PatchState attribute holding the original (when prefer_captured_original).
 	original_state_attr: str | None = None
+	# If True, skip when module cannot be imported (optional apps e.g. HRMS).
+	optional: bool = False
 
 
 @dataclass
@@ -266,6 +268,21 @@ CONTRACTS: tuple[CallableContract, ...] = (
 			"Gregorian Month/Quarter SQL; Jalali path uses BusinessPeriodEngine."
 		),
 	),
+	# HRMS Vehicle Expenses (Phase 6A)
+	CallableContract(
+		id="hrms.vehicle_expenses.get_chart_data",
+		module="hrms.hr.report.vehicle_expenses.vehicle_expenses",
+		attr="get_chart_data",
+		params=(ParamSpec("data"), ParamSpec("filters")),
+		prefer_captured_original=True,
+		original_state_attr="original_vehicle_expenses_get_chart_data",
+		optional=True,
+		notes=(
+			"Chart buckets Vehicle Log dates via get_period_list Monthly. "
+			"Adapter passes filters.company so FS Business Calendar applies. "
+			"Optional — soft-skip when HRMS missing."
+		),
+	),
 )
 
 
@@ -378,6 +395,11 @@ def check_callable_contract(contract: CallableContract, fn: Callable[..., Any] |
 def validate_all_contracts() -> ContractResult:
 	result = ContractResult()
 	for contract in CONTRACTS:
+		if contract.optional:
+			try:
+				importlib.import_module(contract.module)
+			except ImportError:
+				continue
 		for msg in check_callable_contract(contract):
 			result.failures.append(ContractFailure(contract.id, msg))
 	return result
