@@ -49,8 +49,8 @@ Forecast (Exponential Smoothing) · MRP/MPS · Issue Analytics · HRMS payroll/a
 
 | Metric | Value |
 |--------|------:|
-| Tests run | **366** (307 + 59 category split) |
-| Passed | **363** |
+| Tests run | **367** (307 + 60 category split; +1 vs RC after Time-field unit split) |
+| Passed | **367** |
 | Failed | **0** (Display/coercion test debt resolved post-RC — incorrect expectations) |
 | Skipped | **0** observed |
 
