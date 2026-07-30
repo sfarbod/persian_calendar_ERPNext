@@ -43,13 +43,20 @@ Real, current limitations only. Completed features are not listed here.
 
 ---
 
-## Test debt (validation bench)
+## Test debt (resolved in post-RC)
 
-These failures are **Display / datetime coercion** tests, not Business Calendar period arithmetic. They do **not** fail `release_check` or contracts:
+Display/coercion unit expectations that failed on the 1.8.0 RC bench were
+**incorrect tests**, not Business Calendar regressions:
 
-1. `utils.test_datetime_coercion.TestCoerceGregorianDatetime.test_jalali_datetime_to_gregorian`
-2. `utils.test_datetime_coercion.TestCoerceGregorianDatetime.test_toshamshi_roundtrip_display`
-3. `jalali_support.test_datetime_normalizer.TestDatetimeNormalizer.test_time_fields_are_not_modified_on_validate`
+1. `test_jalali_datetime_to_gregorian` / `test_toshamshi_roundtrip_display` used
+   an outdated mapping (`1405-02-01 ↔ 2026-04-20`). Independent `jdatetime`
+   confirms `1405-02-01 → 2026-04-21` and `2026-04-20 → 1405-01-31`.
+2. `test_time_fields_are_not_modified_on_validate` hard-coded a site Purchase
+   Receipt name and wall-clock time; without that fixture the normalizer
+   correctly falls back to `00:00:00`. Replaced with mocked `frappe.db.get_value`
+   cases.
+
+No Display Calendar or coercion **implementation** change was required.
 
 ---
 

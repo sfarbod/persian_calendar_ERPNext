@@ -22,9 +22,10 @@ class TestCoerceGregorianDatetime(unittest.TestCase):
 		)
 
 	def test_jalali_datetime_to_gregorian(self):
+		# jdatetime: 1405-02-01 == 2026-04-21 (not 2026-04-20)
 		self.assertEqual(
 			coerce_gregorian_datetime("1405-02-01 08:30:00"),
-			"2026-04-20 08:30:00",
+			"2026-04-21 08:30:00",
 		)
 
 	def test_jalali_to_gregorian_datetime_iso(self):
@@ -34,8 +35,15 @@ class TestCoerceGregorianDatetime(unittest.TestCase):
 		)
 
 	def test_toshamshi_roundtrip_display(self):
+		# jdatetime: 2026-04-20 == 1405-01-31; round-trip via coerce stays stable
 		self.assertEqual(
 			toshamshi("2026-04-20 08:30:00", include_time=True),
+			"1405-01-31 08:30:00",
+		)
+		gregorian = coerce_gregorian_datetime("1405-02-01 08:30:00")
+		self.assertEqual(gregorian, "2026-04-21 08:30:00")
+		self.assertEqual(
+			toshamshi(gregorian, include_time=True),
 			"1405-02-01 08:30:00",
 		)
 

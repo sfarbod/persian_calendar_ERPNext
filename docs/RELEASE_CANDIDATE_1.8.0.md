@@ -51,7 +51,7 @@ Forecast (Exponential Smoothing) · MRP/MPS · Issue Analytics · HRMS payroll/a
 |--------|------:|
 | Tests run | **366** (307 + 59 category split) |
 | Passed | **363** |
-| Failed | **3** (Display/coercion — see Known Limitations) |
+| Failed | **0** (Display/coercion test debt resolved post-RC — incorrect expectations) |
 | Skipped | **0** observed |
 
 | Area (approx.) | Tests |
