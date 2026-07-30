@@ -626,7 +626,15 @@ apply_calendar_patches()
 3. Do **not** invent BC adapters for payroll month Select or Monthly Attendance grids.
 4. See [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md).
 
-**Recipes count: 14**
+### Recipe O — Manufacturing / Stock final audit (Phase 6B)
+
+1. **Do not** add speculative MFG/Stock adapters.
+2. Period analytics already covered: Stock Analytics + Production/WO/JC rebinds + DN/PR Trends.
+3. Leave Exponential Smoothing for Forecast 3e (`company` into `get_period_list`).
+4. Leave MRP Report bucket view for MRP/MPS (planning calendar ≠ BusinessPeriodEngine).
+5. See [`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md).
+
+**Recipes count: 15**
 
 ---
 
@@ -664,6 +672,7 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`API_REFERENCE.md`](API_REFERENCE.md) | Public `persian_calendar.api` surface |
 | [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md) | CRM Sales Pipeline Analytics BC |
 | [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md) | HRMS audit + Vehicle Expenses chart |
+| [`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md) | Phase 6B MFG/Stock final audit |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---

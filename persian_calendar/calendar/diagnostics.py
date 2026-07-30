@@ -55,9 +55,9 @@ class ReleaseLevel(str, Enum):
 
 
 DEFERRED_MODULES = (
-	"Forecast redesign (Phase 3e)",
+	"Forecast redesign (Phase 3e) — includes Exponential Smoothing (get_period_list without company)",
 	"Issue Analytics",
-	"Core MRP / MPS",
+	"Core MRP / MPS — Phase 6B: MRP Report planning buckets",
 	"HRMS Payroll / Attendance period reports",
 	"Trends presentation-label cleanup (Phase 6)",
 	"Subscription / Auto Repeat / Maintenance",

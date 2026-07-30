@@ -169,3 +169,10 @@ Optional contract `hrms.vehicle_expenses.get_chart_data` (skipped if HRMS
 missing). Jalali Company → chart periods via FS `get_period_list` with
 `company`. Soft-skip must remain a no-op on benches without HRMS. See
 [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md).
+
+### Manufacturing / Stock final audit (Phase 6B)
+
+No new patch targets. Re-audit on ERPNext upgrade: manufacturing consumers of
+Stock Analytics helpers, Trends stock reports, and Exponential Smoothing
+`get_period_list` call site. See
+[`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md).

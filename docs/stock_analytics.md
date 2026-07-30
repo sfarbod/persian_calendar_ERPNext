@@ -72,10 +72,14 @@ Stock `get_period_date_ranges` looks up `round_down_to_nearest_frequency` via **
 
 ## Explicit non-goals
 
-- Core MRP / MPS / capacity / BOM scheduling
+- Core MRP / MPS / capacity / BOM scheduling (Phase 6B: MRP Report buckets deferred)
+- Exponential Smoothing Forecasting Jalali periods (Forecast Phase 3e — pass `company`)
 - CRM Pipeline Analytics / Issue Analytics / HRMS
 - Trends presentation-label cleanup
 - Jalali Weekly semantics
+
+Phase 6B full MFG/Stock inventory:
+[`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md).
 
 ## Tests
 

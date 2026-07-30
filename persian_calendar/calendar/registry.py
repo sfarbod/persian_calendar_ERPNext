@@ -188,7 +188,7 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		consumers=("rebinds Stock Analytics helpers",),
 		documentation="docs/stock_analytics.md",
 		mechanism="Identity rebind only — not core MRP",
-		notes="Deferred: core MRP/MPS",
+		notes="Phase 6B audit: confirmed only Stock period-helper consumer path; see docs/MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md",
 	),
 	IntegratedModule(
 		name="Work Order Summary",
@@ -196,6 +196,7 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		patch_targets=(),
 		documentation="docs/stock_analytics.md",
 		mechanism="Identity rebind of Stock period helpers",
+		notes="Phase 6B: no additional adapter required",
 	),
 	IntegratedModule(
 		name="Job Card Summary",
@@ -203,6 +204,23 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		patch_targets=(),
 		documentation="docs/stock_analytics.md",
 		mechanism="Identity rebind of Stock period helpers",
+		notes="Phase 6B: no additional adapter required",
+	),
+	IntegratedModule(
+		name="Stock / Manufacturing Display Calendar",
+		status="display_covered",
+		patch_targets=(),
+		documentation="docs/MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md",
+		mechanism="Global desk Display Calendar on standard Date/Datetime fields",
+		notes="Phase 6B: ledger/balance/ageing/BOM reports inherit Display Calendar; no domain display adapters",
+	),
+	IntegratedModule(
+		name="Exponential Smoothing Forecasting",
+		status="deferred",
+		patch_targets=(),
+		documentation="docs/MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md",
+		notes="Uses get_period_list without company (always Gregorian BC). Deferred to Forecast Phase 3e. "
+		"Already in GET_PERIOD_LIST_CONSUMERS for rebind.",
 	),
 	IntegratedModule(
 		name="CRM Display Calendar",
@@ -269,7 +287,9 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		name="MRP / MPS",
 		status="deferred",
 		patch_targets=(),
-		notes="Manufacturing helper rebinds are not MRP",
+		documentation="docs/MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md",
+		notes="Phase 6B: MRP Report bucket view uses Gregorian get_first_day/add_months planning "
+		"columns — not BusinessPeriodEngine. Stock Analytics manufacturing rebinds are not MRP.",
 	),
 )
 

@@ -403,11 +403,14 @@ Do not claim compatibility with versions that were not tested.
 | Purchase Analytics | Implemented (Phase 3d-1) | Same class as Sales Analytics — no second patch |
 | Stock Analytics | Implemented (Phase 3d-2) | Free functions via `integrations/stock_analytics.py`; Weekly → stock; carry-forward preserved |
 | Production / WO / Job Card Summary | Implemented (Phase 3d-2) | Identity-rebind of Stock Analytics period helpers only — not core MRP |
+| Delivery Note / Purchase Receipt Trends | Implemented (Phase 3c) | Via Trends `get_period_date_ranges` |
+| Stock / Manufacturing Display Calendar | Verified (Phase 6B) | Global desk; no domain display adapters — see `docs/MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md` |
+| Exponential Smoothing Forecasting | Deferred (Phase 3e) | `get_period_list` without `company`; FS consumer rebound only |
 | CRM Display Calendar (forms/lists/report filters) | Verified global coverage (Phase 5A-2) | No CRM display adapters; see `docs/CRM_DISPLAY_CALENDAR.md` |
 | CRM Pipeline Analytics (Business Calendar) | Implemented (Phase 5A-3) | `spa.execute`; Monthly/Quarterly; see `docs/CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md` |
 | Issue Analytics (Business Calendar) | Not started | Deferred |
-| Forecast | Not started | Deferred (Phase 3e) |
-| Manufacturing (MRP / MPS) | Not started | Deferred (Phase 4) |
+| Forecast | Not started | Deferred (Phase 3e); includes Exponential Smoothing |
+| Manufacturing (MRP / MPS) | Deferred | Phase 6B: MRP bucket view = planning calendar, not BusinessPeriodEngine |
 | HRMS Vehicle Expenses (chart) | Implemented (Phase 6A) | `get_chart_data` + Company filter; reuses FS `get_period_list`; see `docs/HRMS_BUSINESS_CALENDAR.md` |
 | HRMS Display Calendar | Verified global coverage (Phase 6A) | No HRMS-specific display adapters |
 | HRMS Payroll / Attendance period reports | Deferred | Day grids / month Select / Payroll Period — not BusinessPeriodEngine |
@@ -633,9 +636,9 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | Console bootstrap | Must call `apply_calendar_patches()` manually |
 | Dual `get_period_list` wrappers | Display `formatters.patch_get_period_list` may run before the BC adapter on `before_request`; Gregorian BC boundaries still delegate, but **labels** may follow Display Calendar until Presentation Layer unifies this |
 | Sales / Purchase Analytics | Implemented (3d-1); see module note |
-| Stock Analytics + manufacturing helper rebinds | Implemented (3d-2); core MRP/MPS not started |
-| Forecast | Not redesigned |
-| MRP / MPS | Not started |
+| Stock Analytics + manufacturing helper rebinds | Implemented (3d-2); Phase 6B audit: no further MFG/Stock period adapters |
+| Forecast / Exponential Smoothing | Deferred (3e); `get_period_list` missing `company` |
+| MRP / MPS | Deferred; Phase 6B confirmed planning buckets ≠ BusinessPeriodEngine |
 | HRMS Vehicle Expenses (BC chart) | Phase 6A implemented |
 | HRMS Payroll / Attendance period reports | Deferred |
 | Subscription / Auto Repeat / Maintenance | Not started |
@@ -699,17 +702,17 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | | |
 |--|--|
 | **Purpose** | Forecasting period alignment without redesigning forecast models beyond compatibility |
-| **Dependencies** | Period engine; possibly FS / Trends patterns |
-| **Expected mechanism** | Prefer engine consumption; patch only if free functions force it |
-| **Risks** | Forecast modules may already touch `get_period_list` in some paths |
+| **Phase 6B finding** | Exponential Smoothing Forecasting calls `get_period_list` **without** `company` → always Gregorian BC; module already in `GET_PERIOD_LIST_CONSUMERS` |
+| **Expected mechanism** | Pass `company` into `get_period_list` (Vehicle Expenses pattern) or Forecast redesign |
+| **Risks** | Forecast models may assume Gregorian period keys; smoothing across Jalali months needs product review |
 
-### Phase 4 — Manufacturing
+### Phase 4 / 6B — Manufacturing
 
 | | |
 |--|--|
 | **Purpose** | MRP / MPS and manufacturing reports that bucket by calendar periods |
-| **Dependencies** | Stable applicator; Analytics lessons |
-| **Expected mechanism** | Audit first; avoid broad patches |
+| **Phase 6B (done — audit)** | 17 MFG + 42 Stock reports audited; Production/WO/JC already covered; no new adapters |
+| **Deferred** | MRP Report Daily/Weekly/Monthly planning buckets (`get_first_day` / `add_months`) |
 | **Risks** | Planning horizons may differ from accounting fiscal year; performance |
 
 ### Phase 5 / 6A — HRMS
