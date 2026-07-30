@@ -20,5 +20,19 @@
 		"insert_after": "import_type",
 		"default": "0",
 		"module": "Persian Calendar"
+	},
+	{
+		"doctype": "Custom Field",
+		"name": "Company-business_calendar",
+		"dt": "Company",
+		"fieldname": "business_calendar",
+		"fieldtype": "Select",
+		"label": "Business Calendar",
+		"insert_after": "country",
+		"options": "Gregorian\nJalali",
+		"default": "Gregorian",
+		"reqd": 0,
+		"module": "Persian Calendar",
+		"description": "Official calendar for company business period arithmetic. Independent of each user's Display Calendar."
 	}
 ]

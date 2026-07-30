@@ -6,4 +6,5 @@ import "./jalali_support/persian_calendar.js";
 import "./jalali_support/formatters.js";
 import "./jalali_support/auto_refresh.js";
 import "./jalali_support/data_import_export.js";
+import "./jalali_support/hrms_vehicle_expenses.js";
 

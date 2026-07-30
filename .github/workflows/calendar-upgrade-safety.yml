@@ -1,0 +1,32 @@
+# Optional CI — Business Calendar upgrade safety (Phase 4a)
+#
+# This repository did not ship GitHub Actions at Phase 4a time.
+# Copy/adapt this workflow when a bench-capable runner is available.
+#
+# Hard-fail on diagnostics.release_check == FAIL and on test_contracts failures.
+
+name: calendar-upgrade-safety
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [develop]
+  # pull_request:
+
+jobs:
+  upgrade-safety:
+    name: Contract + release check
+    # Requires a custom image/runner with frappe-bench + site.
+    runs-on: ubuntu-latest
+    if: ${{ false }} # enable when runner + secrets are configured
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Placeholder — run on bench host
+        run: |
+          echo "Configure this job to run inside frappe-bench, for example:"
+          echo "  bench --site \$SITE execute persian_calendar.calendar.diagnostics.release_check"
+          echo "  bench --site \$SITE run-tests --app persian_calendar --module persian_calendar.calendar.test_contracts"
+          echo "Fail the job if release_check prints FAIL or tests fail."
+          exit 1

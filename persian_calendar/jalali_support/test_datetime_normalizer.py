@@ -67,11 +67,36 @@ class TestDatetimeNormalizer(FrappeTestCase):
 		"persian_calendar.jalali_support.datetime_normalizer._is_jalali_enabled",
 		return_value=True,
 	)
-	def test_time_fields_are_not_modified_on_validate(self, _enabled):
-		row = frappe._dict(doctype="Purchase Receipt", name="MAT-PRE-2026-00075", posting_time="Invalid date")
-		normalize_doc_datetimes(row)
-		self.assertNotEqual(row.posting_time, "Invalid date")
-		self.assertIn(str(row.posting_time), ("1:29:23", "01:29:23"))
+	@patch("frappe.db.get_value", return_value="01:29:23")
+	def test_time_fields_restore_from_db_on_invalid_value(self, _get_value, _enabled):
+		"""Bad Time strings restore from DB when the document has a name (unit: no site fixture)."""
+		from persian_calendar.jalali_support.datetime_normalizer import _sanitize_time_field
+
+		row = frappe._dict(
+			doctype="Purchase Receipt",
+			name="MAT-PRE-TEST-TIME",
+			posting_time="Invalid date",
+		)
+		_sanitize_time_field(row, "posting_time")
+		self.assertEqual(str(row.posting_time), "01:29:23")
+		_get_value.assert_called_once_with("Purchase Receipt", "MAT-PRE-TEST-TIME", "posting_time")
+
+	@patch(
+		"persian_calendar.jalali_support.datetime_normalizer._is_jalali_enabled",
+		return_value=True,
+	)
+	@patch("frappe.db.get_value", return_value=None)
+	def test_time_fields_default_midnight_without_db_restore(self, _get_value, _enabled):
+		"""When restore is unavailable, invalid Time falls back to midnight (not a throw)."""
+		from persian_calendar.jalali_support.datetime_normalizer import _sanitize_time_field
+
+		row = frappe._dict(
+			doctype="Purchase Receipt",
+			name="MAT-PRE-MISSING",
+			posting_time="Invalid date",
+		)
+		_sanitize_time_field(row, "posting_time")
+		self.assertEqual(str(row.posting_time), "00:00:00")
 
 	@patch(
 		"persian_calendar.jalali_support.datetime_normalizer._is_jalali_enabled",
