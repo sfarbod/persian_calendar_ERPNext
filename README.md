@@ -1,6 +1,8 @@
 ### Persian Calendar
 
-Jalali Support
+Jalali desk support and **Company Business Calendar** for ERPNext (Frappe v16).
+
+**Current version:** **1.8.0** — see [`CHANGELOG.md`](CHANGELOG.md) and [`docs/RELEASE_NOTES_1.8.0.md`](docs/RELEASE_NOTES_1.8.0.md).
 
 ### Installation
 
@@ -10,6 +12,15 @@ You can install this app using the [bench](https://github.com/frappe/bench) CLI:
 cd $PATH_TO_YOUR_BENCH
 bench get-app $URL_OF_THIS_REPO --branch develop
 bench install-app persian_calendar
+```
+
+After install/upgrade:
+
+```bash
+bench migrate
+bench build --app persian_calendar
+bench --site <site> clear-cache
+bench --site <site> execute persian_calendar.calendar.diagnostics.release_check
 ```
 
 ### Contributing

@@ -1,7 +1,7 @@
 # Phase 5A Design Audit — CRM Jalali Coverage & Conversion API
 
 **Status:** Audit only (no behavioral implementation in this document’s companion commit)  
-**Platform:** Frappe **16.28.0** · ERPNext **16.29.0** · `persian_calendar` **1.7.0**  
+**Platform:** Frappe **16.28.0** · ERPNext **16.29.0** · `persian_calendar` **1.8.0**  
 **Date:** 2026-07-29
 
 This audit separates:

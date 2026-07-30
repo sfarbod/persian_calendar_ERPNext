@@ -7,7 +7,8 @@
 | Status | **Frozen** (official technical architecture reference) |
 | Scope | Phases 0 → 3d-2 inclusive |
 | App | `persian_calendar` |
-| App version (at freeze) | `1.7.0` |
+| App version (at architecture freeze) | `1.7.0` (Phases 0–3d) |
+| App version (Release Candidate) | **`1.8.0`** (CRM / HRMS / audits / SDK) |
 | Document path | `docs/ARCHITECTURE_BUSINESS_CALENDAR.md` |
 
 ### Validated platform (development bench at freeze)
@@ -18,7 +19,7 @@
 | ERPNext | **16.29.0** (`version-16`) | Source audit and framework tests |
 | Python (runtime) | **3.14.2** | Bench `env` interpreter |
 | Python (declared) | **≥ 3.10** | `pyproject.toml` `requires-python` |
-| `persian_calendar` | **1.7.0** | Branch `develop` |
+| `persian_calendar` | **1.8.0** | Branch `develop` (RC) |
 
 ### Approved commits
 
@@ -366,6 +367,10 @@ There is no supported Frappe hook for `bench execute` / console. Call `apply_cal
 
 ## Compatibility Matrix
 
+Canonical 1.8.0 table: [`COMPATIBILITY_MATRIX_1.8.0.md`](COMPATIBILITY_MATRIX_1.8.0.md).
+
+Historical Phase 3c–3d matrix (below) remains for upgrade archaeology; prefer the 1.8.0 document for release decisions.
+
 ### Platform compatibility
 
 Statuses used below: **Validated**, **Targeted**, **Requires re-audit**, **Not validated**, **Unsupported**.
@@ -380,7 +385,7 @@ Statuses used below: **Validated**, **Targeted**, **Requires re-audit**, **Not v
 | ERPNext | 15.x | Not validated | Architecture implemented for ERPNext v16 |
 | Python | ≥ 3.10 (declared) | Targeted | `pyproject.toml` |
 | Python | 3.14.2 (runtime) | Validated | Bench environment used for freeze verification |
-| `persian_calendar` | 1.7.0 | Validated | App version at Phase 3c tip `b1556bd` |
+| `persian_calendar` | 1.8.0 | Validated | Release Candidate; Architecture freeze baseline was 1.7.0 at Phase 3c |
 | MariaDB | 10.11.x (bench host) | Not validated as framework dependency | Present in environment; framework does not claim DB-version-specific behavior |
 | Node.js | (Desk build toolchain) | Unsupported for this framework | Business Calendar arithmetic is server-side; Node is irrelevant to period math |
 

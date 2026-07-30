@@ -1,7 +1,7 @@
 # CRM Display Calendar Coverage (Phase 5A-2)
 
 **Status:** Verified — Outcome **A** (global coverage; tests/docs only)  
-**Platform:** Frappe **16.28.0** · ERPNext **16.29.0** · `persian_calendar` **1.7.0**  
+**Platform:** Frappe **16.28.0** · ERPNext **16.29.0** · `persian_calendar` **1.8.0**  
 **Related:** [`CRM_JALALI_TOSHAMSHI_AUDIT.md`](CRM_JALALI_TOSHAMSHI_AUDIT.md) · [`TOSHAMSHI.md`](TOSHAMSHI.md)
 
 This phase is **Display Calendar only**. Sales Pipeline **business** period

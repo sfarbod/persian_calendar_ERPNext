@@ -176,3 +176,9 @@ No new patch targets. Re-audit on ERPNext upgrade: manufacturing consumers of
 Stock Analytics helpers, Trends stock reports, and Exponential Smoothing
 `get_period_list` call site. See
 [`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md).
+
+### Release Candidate 1.8.0 (Phase 7)
+
+Version bump only — no new Business Calendar features. Run `release_check`
+after deploy. See [`RELEASE_NOTES_1.8.0.md`](RELEASE_NOTES_1.8.0.md) and
+[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md).

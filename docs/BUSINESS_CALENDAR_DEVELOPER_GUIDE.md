@@ -673,6 +673,10 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md) | CRM Sales Pipeline Analytics BC |
 | [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md) | HRMS audit + Vehicle Expenses chart |
 | [`MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md`](MANUFACTURING_STOCK_BUSINESS_CALENDAR_AUDIT.md) | Phase 6B MFG/Stock final audit |
+| [`COMPATIBILITY_MATRIX_1.8.0.md`](COMPATIBILITY_MATRIX_1.8.0.md) | Final 1.8.0 integration matrix |
+| [`RELEASE_NOTES_1.8.0.md`](RELEASE_NOTES_1.8.0.md) | 1.8.0 release notes |
+| [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | Real limitations only |
+| [`RELEASE_CANDIDATE_1.8.0.md`](RELEASE_CANDIDATE_1.8.0.md) | Phase 7 RC audit report |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---
