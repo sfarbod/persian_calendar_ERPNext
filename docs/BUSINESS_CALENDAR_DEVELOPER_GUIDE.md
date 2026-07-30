@@ -613,7 +613,20 @@ apply_calendar_patches()
 3. Do not use SQL MONTH/QUARTER or `toshamshi` for allocation.
 4. See [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md).
 
-**Recipes count: 13**
+### Recipe N — HRMS Vehicle Expenses Business Calendar (Phase 6A)
+
+```python
+from persian_calendar.api import apply_calendar_patches
+apply_calendar_patches()
+# Soft-skips if HRMS is not installed
+```
+
+1. Patch seam: `get_chart_data` wrap; Gregorian → stock; Jalali → `get_period_list(..., company=)`.
+2. Inject optional Company filter in desk JS (chart BC only).
+3. Do **not** invent BC adapters for payroll month Select or Monthly Attendance grids.
+4. See [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md).
+
+**Recipes count: 14**
 
 ---
 
@@ -625,7 +638,7 @@ Every Business Calendar change must include:
 |-------------|-------------|
 | **Design** | Audited extension point; ADR-compatible; decision tree followed |
 | **Tests** | Gregorian parity + Jalali (as applicable) + lifecycle if patched |
-| **Documentation** | Module note and/or Architecture Compatibility Matrix / this guide |
+| **Documentation** | Module note and/or Architecture Compatibility Matrix / this guide (HRMS: `HRMS_BUSINESS_CALENDAR.md`) |
 | **Gregorian parity** | Default companies unchanged vs stock for the delegated path |
 | **Historical safety** | No silent rewrite of submitted boundaries |
 | **Scope** | No drive-by refactors; no version bump unless requested |
@@ -649,6 +662,8 @@ Pull requests that patch `frappe.utils`, key on translated month names, or deriv
 | [`UPGRADE_GUIDE.md`](UPGRADE_GUIDE.md) | Phase 4a upgrade safety / diagnostics |
 | [`SDK.md`](SDK.md) | Phase 4b extension SDK |
 | [`API_REFERENCE.md`](API_REFERENCE.md) | Public `persian_calendar.api` surface |
+| [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md) | CRM Sales Pipeline Analytics BC |
+| [`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md) | HRMS audit + Vehicle Expenses chart |
 | [`asset_business_calendar_integration.md`](asset_business_calendar_integration.md) | Asset call graph |
 
 ---

@@ -41,7 +41,7 @@ Three-layer model unchanged: Storage (Gregorian) → Display (user UI) → Busin
 
 ## 3. Deferred modules (explicit non-goals)
 
-Forecast redesign, CRM Pipeline Analytics, Issue Analytics, core MRP/MPS, HRMS, Subscription / Auto Repeat / Maintenance, Trends presentation-label cleanup (Phase 6), historical auto-migration.
+Forecast redesign, Issue Analytics, core MRP/MPS, HRMS payroll/attendance period reports (Vehicle Expenses chart done in 6A), Subscription / Auto Repeat / Maintenance, Trends presentation-label cleanup (Phase 6), historical auto-migration.
 
 ---
 

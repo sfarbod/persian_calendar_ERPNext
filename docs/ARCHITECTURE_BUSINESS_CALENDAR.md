@@ -408,7 +408,9 @@ Do not claim compatibility with versions that were not tested.
 | Issue Analytics (Business Calendar) | Not started | Deferred |
 | Forecast | Not started | Deferred (Phase 3e) |
 | Manufacturing (MRP / MPS) | Not started | Deferred (Phase 4) |
-| HRMS | Not started | Deferred (Phase 5) |
+| HRMS Vehicle Expenses (chart) | Implemented (Phase 6A) | `get_chart_data` + Company filter; reuses FS `get_period_list`; see `docs/HRMS_BUSINESS_CALENDAR.md` |
+| HRMS Display Calendar | Verified global coverage (Phase 6A) | No HRMS-specific display adapters |
+| HRMS Payroll / Attendance period reports | Deferred | Day grids / month Select / Payroll Period — not BusinessPeriodEngine |
 | Presentation Layer (picker / label consistency) | Partially implemented | Display Calendar exists separately; business-period label consistency deferred (Phase 6) |
 | Subscription / Auto Repeat / Maintenance | Not started | Out of freeze scope |
 
@@ -634,7 +636,8 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | Stock Analytics + manufacturing helper rebinds | Implemented (3d-2); core MRP/MPS not started |
 | Forecast | Not redesigned |
 | MRP / MPS | Not started |
-| HRMS | Not started |
+| HRMS Vehicle Expenses (BC chart) | Phase 6A implemented |
+| HRMS Payroll / Attendance period reports | Deferred |
 | Subscription / Auto Repeat / Maintenance | Not started |
 | CRM Display Calendar | Phase 5A-2 verified (global desk) |
 | CRM Pipeline Analytics (BC) | Phase 5A-3 implemented |
@@ -709,14 +712,15 @@ All Business Calendar Framework suites passed. Two pre-existing failures remain 
 | **Expected mechanism** | Audit first; avoid broad patches |
 | **Risks** | Planning horizons may differ from accounting fiscal year; performance |
 
-### Phase 5 — HRMS
+### Phase 5 / 6A — HRMS
 
 | | |
 |--|--|
-| **Purpose** | Leave, payroll, and attendance period semantics where company Business Calendar applies |
-| **Dependencies** | Clear product ownership: HR may have separate leave-year concepts |
-| **Expected mechanism** | Prefer DocType overrides; do not mix employment calendars with accounting Business Calendar without explicit rules |
-| **Risks** | Domain ambiguity; multi-company employees |
+| **Purpose** | HRMS reports that truly use Monthly/Quarterly business period lists |
+| **Phase 6A (done)** | Audit all HRMS 16.14 reports; implement Vehicle Expenses chart only; Display verified global |
+| **Deferred** | Monthly Attendance day-grid; payroll month Select; Payroll Period DocType reports |
+| **Dependencies** | FS `get_period_list` adapter; optional HRMS soft-skip |
+| **Risks** | Confusing payroll month with Company Business Calendar; speculative patches |
 
 ### Phase 6 — Presentation Layer
 

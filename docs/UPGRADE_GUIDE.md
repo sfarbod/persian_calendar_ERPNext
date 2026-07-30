@@ -162,3 +162,10 @@ status: `display_covered`.
 `spa.execute` contract + module execute patch. Jalali Company →
 `BusinessPeriodEngine` on `expected_closing`. See
 [`CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md`](CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md).
+
+### HRMS Vehicle Expenses Business Calendar (Phase 6A)
+
+Optional contract `hrms.vehicle_expenses.get_chart_data` (skipped if HRMS
+missing). Jalali Company → chart periods via FS `get_period_list` with
+`company`. Soft-skip must remain a no-op on benches without HRMS. See
+[`HRMS_BUSINESS_CALENDAR.md`](HRMS_BUSINESS_CALENDAR.md).
