@@ -8,8 +8,8 @@ Validated matrix (Phase 3 Final / Phase 4a):
 
 | Component | Version |
 |-----------|---------|
-| ERPNext | **16.29.0** |
-| Frappe | **16.28.0** |
+| ERPNext | **16.30.0** |
+| Frappe | **16.29.0** |
 | `persian_calendar` | see `persian_calendar.__version__` |
 
 ---
@@ -182,3 +182,10 @@ Stock Analytics helpers, Trends stock reports, and Exponential Smoothing
 Version bump only — no new Business Calendar features. Run `release_check`
 after deploy. See [`RELEASE_NOTES_1.8.0.md`](RELEASE_NOTES_1.8.0.md) and
 [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md).
+
+### 1.9.0 — Gregorian Datetime control (Job Card)
+
+Frappe **16.29** added `ControlDatetime.sync_datepicker_state`. After upgrade,
+rebuild persian_calendar assets and clear cache. Symptom if stale: blank Job
+Card under Display Calendar = Gregorian. See
+[`RELEASE_NOTES_1.9.0.md`](RELEASE_NOTES_1.9.0.md).

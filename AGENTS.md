@@ -1,6 +1,6 @@
 # Persian Calendar — Agent Instructions
 
-Frappe app that adds Jalali calendar support to ERPNext desk and Company Business Calendar period analytics. Targets **Frappe/ERPNext v16** on Python 3.10+. **Current version: 1.8.0.**
+Frappe app that adds Jalali calendar support to ERPNext desk and Company Business Calendar period analytics. Targets **Frappe/ERPNext v16** on Python 3.10+. **Current version: 1.9.0.**
 
 ## Architecture
 

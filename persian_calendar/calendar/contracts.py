@@ -4,7 +4,7 @@ Phase 4a — when upstream signatures or import paths change, contract checks
 fail fast with a human-readable message instead of silently mis-bucketing
 business periods.
 
-Validated against ERPNext **16.29.0** / Frappe **16.28.0**.
+Validated against ERPNext **16.30.0** / Frappe **16.29.0**.
 """
 
 from __future__ import annotations

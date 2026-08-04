@@ -5,6 +5,32 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] — 2026-08-04
+
+### Fixed
+
+- **Gregorian Display Calendar:** Job Card (and other Datetime forms) no longer blank with
+  `TypeError: this.sync_datepicker_state is not a function`.
+  `JalaliControlDatetime` now delegates Frappe ≥16.29 `ControlDatetime`-only methods
+  (`sync_datepicker_state` and related) that Gregorian mode invokes via upstream
+  `.call(this)` into the captured prototype.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.29.0 |
+| ERPNext | 16.30.0 |
+
+Requires asset rebuild + cache clear after upgrade (`bench build --app persian_calendar`).
+
+### Developer
+
+- Invariant tests for `sync_datepicker_state` on `JalaliControlDatetime`.
+- Cypress: `gregorian_job_card_datetime.js`.
+
+See [`docs/RELEASE_NOTES_1.9.0.md`](docs/RELEASE_NOTES_1.9.0.md).
+
 ## [1.8.0] — 2026-07-30
 
 Business Calendar Framework release candidate. Storage remains Gregorian; Display Calendar is presentation-only; Company Business Calendar drives period analytics via `BusinessPeriodEngine`.

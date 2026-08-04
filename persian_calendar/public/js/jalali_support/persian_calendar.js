@@ -4532,7 +4532,15 @@ class JalaliDatepicker {
     frappe.ui.form.ControlDate = JalaliControlDate;
     
     // Override ControlDatetime - it should inherit from JalaliControlDate
-    // But we need to make sure datetime-specific methods are preserved
+    // But we need to make sure datetime-specific methods are preserved.
+    //
+    // Inheritance is JalaliControlDatetime → JalaliControlDate → ControlDate,
+    // NOT ControlDatetime. Gregorian mode therefore calls into
+    // BaseControlDatetime.prototype.* with `.call(this)`, and any method those
+    // upstream functions invoke on `this` must exist on JalaliControlDatetime.
+    // Frappe ≥16.29 ControlDatetime.set_formatted_input calls
+    // this.sync_datepicker_state(...) — without a delegate here, Gregorian
+    // Datetime refresh throws and blanks forms (e.g. Job Card Time Logs).
     class JalaliControlDatetime extends JalaliControlDate {
       make_input() {
         super.make_input();
@@ -4545,6 +4553,47 @@ class JalaliDatepicker {
           this.setupInputWithoutAirDatepicker();
           this.replaceWithJalaliDatepicker();
         }
+      }
+
+      /**
+       * Delegate Frappe ControlDatetime-only APIs that are missing from the
+       * JalaliControlDate → ControlDate prototype chain.
+       */
+      sync_datepicker_state(date) {
+        if (typeof BaseControlDatetime.prototype.sync_datepicker_state === "function") {
+          return BaseControlDatetime.prototype.sync_datepicker_state.call(this, date);
+        }
+        // Pre-16.29 Frappe: keep picker selection aligned without the helper.
+        if (this.datepicker && date) {
+          try {
+            this.datepicker.selectDate(date);
+          } catch (e) {
+            /* ignore */
+          }
+        }
+      }
+
+      get_start_date() {
+        return BaseControlDatetime.prototype.get_start_date.call(this);
+      }
+
+      set_description() {
+        return BaseControlDatetime.prototype.set_description.call(this);
+      }
+
+      get_user_time_zone() {
+        return BaseControlDatetime.prototype.get_user_time_zone.call(this);
+      }
+
+      set_datepicker() {
+        if (this.jalaliDatepicker || shouldUseJalaliCalendar()) {
+          return;
+        }
+        return BaseControlDatetime.prototype.set_datepicker.call(this);
+      }
+
+      get_model_value() {
+        return BaseControlDatetime.prototype.get_model_value.call(this);
       }
 
       set_date_options() {
