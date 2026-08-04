@@ -2,7 +2,7 @@
 
 Jalali desk support and **Company Business Calendar** for ERPNext (Frappe v16).
 
-**Current version:** **1.8.0** — see [`CHANGELOG.md`](CHANGELOG.md) and [`docs/RELEASE_NOTES_1.8.0.md`](docs/RELEASE_NOTES_1.8.0.md).
+**Current version:** **1.9.0** — see [`CHANGELOG.md`](CHANGELOG.md) and [`docs/RELEASE_NOTES_1.9.0.md`](docs/RELEASE_NOTES_1.9.0.md).
 
 ### Installation
 

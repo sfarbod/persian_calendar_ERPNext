@@ -28,6 +28,12 @@ Real, current limitations only. Completed features are not listed here.
 | **Standard Print `formatdate`** | Use explicit `toshamshi` / `toshamsi` for Jalali in Print Formats. |
 | **toshamshi heuristics** | Out-of-range month/day strings may overflow via jdatetime; years 1601–1699 treated as Gregorian. |
 
+### Resolved in 1.9.0
+
+| Area | Resolution |
+|------|------------|
+| **Gregorian Job Card blank page** | `JalaliControlDatetime` now exposes `sync_datepicker_state` (Frappe ≥16.29). |
+
 ---
 
 ## Framework / upgrade debt

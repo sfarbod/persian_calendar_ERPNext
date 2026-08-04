@@ -18,10 +18,9 @@ class CompatibilityStatus(str, Enum):
 	UNAVAILABLE = "UNAVAILABLE"
 
 
-# Versions validated at Architecture Freeze / Phase 3 Final (see
-# docs/ARCHITECTURE_BUSINESS_CALENDAR.md and docs/BUSINESS_CALENDAR_PHASE3_RELEASE.md).
-VALIDATED_ERPNEXT = "16.29.0"
-VALIDATED_FRAPPE = "16.28.0"
+# Versions validated for Release 1.9.0 (Frappe ControlDatetime.sync_datepicker_state).
+VALIDATED_ERPNEXT = "16.30.0"
+VALIDATED_FRAPPE = "16.29.0"
 SUPPORTED_ERPNEXT_MAJOR = 16
 SUPPORTED_FRAPPE_MAJOR = 16
 
