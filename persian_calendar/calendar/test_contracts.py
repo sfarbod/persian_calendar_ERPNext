@@ -68,6 +68,7 @@ class TestErpnextContracts(unittest.TestCase):
 			"utils.jalali.toshamshi",
 			"spa.execute",
 			"hrms.vehicle_expenses.get_chart_data",
+			"far.prepare_chart_data",
 		}
 		missing = required - ids
 		self.assertFalse(

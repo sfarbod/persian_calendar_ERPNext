@@ -31,17 +31,18 @@ from persian_calendar.calendar.contracts import (
 )
 from persian_calendar.calendar.patches import (
 	BVR_MODULE_PATH,
+	FIXED_ASSET_REGISTER_MODULE_PATH,
 	FS_MODULE_PATH,
 	GET_PERIOD_LIST_CONSUMERS,
 	MD_MODULE_PATH,
 	MD_PERIODWISE_CONSUMERS,
 	SALES_ANALYTICS_MODULE_PATH,
 	SPA_MODULE_PATH,
-	VEHICLE_EXPENSES_MODULE_PATH,
 	STOCK_ANALYTICS_MODULE_PATH,
 	STOCK_ANALYTICS_PERIOD_CONSUMERS,
 	TRENDS_MODULE_PATH,
 	TRENDS_PERIOD_RANGES_CONSUMERS,
+	VEHICLE_EXPENSES_MODULE_PATH,
 	PatchStatus,
 	apply_calendar_patches,
 	get_patch_state,
@@ -261,6 +262,14 @@ def validate_patch_registry() -> list[str]:
 		)
 	except ImportError:
 		pass
+	checks.append(
+		(
+			FIXED_ASSET_REGISTER_MODULE_PATH,
+			"prepare_chart_data",
+			"adapter_far_prepare_chart_data",
+			True,
+		)
+	)
 	for mod_path, attr, adapter_attr, must_be_adapter in checks:
 		try:
 			mod = importlib.import_module(mod_path)
@@ -277,6 +286,7 @@ def validate_patch_registry() -> list[str]:
 			"adapter_budget_variance_execute": "original_budget_variance_execute",
 			"adapter_sales_pipeline_execute": "original_sales_pipeline_execute",
 			"adapter_vehicle_expenses_get_chart_data": "original_vehicle_expenses_get_chart_data",
+			"adapter_far_prepare_chart_data": "original_far_prepare_chart_data",
 			"adapter_stk_get_period_date_ranges": "original_stk_get_period_date_ranges",
 			"adapter_stk_get_period": "original_stk_get_period",
 			"adapter_stk_get_period_columns": "original_stk_get_period_columns",

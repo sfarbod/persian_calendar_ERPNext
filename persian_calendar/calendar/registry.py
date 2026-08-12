@@ -241,9 +241,7 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 	IntegratedModule(
 		name="CRM Pipeline Analytics",
 		status="implemented",
-		patch_targets=(
-			"erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics.execute",
-		),
+		patch_targets=("erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics.execute",),
 		supported_periods=("Monthly", "Quarterly"),
 		documentation="docs/CRM_SALES_PIPELINE_BUSINESS_CALENDAR.md",
 		compatibility_note="Contract: spa.execute — Business date expected_closing; Company filter",
@@ -262,6 +260,17 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		mechanism="get_chart_data wrap + Company filter (JS); pass company into get_period_list",
 		notes="Only HRMS report with Monthly period list. Soft-skip if HRMS not installed. "
 		"Company filter resolves Business Calendar for chart only; table rows unchanged.",
+	),
+	IntegratedModule(
+		name="Fixed Asset Register",
+		status="implemented",
+		patch_targets=("erpnext.assets.report.fixed_asset_register.fixed_asset_register.prepare_chart_data",),
+		supported_periods=("Monthly",),
+		documentation="docs/RELEASE_2_0_0.md",
+		compatibility_note="Contract: far.prepare_chart_data — allocate by period bounds",
+		diagnostics_ids=("far.prepare_chart_data",),
+		mechanism="prepare_chart_data wrap; Gregorian → stock; Jalali → date-bound aggregation",
+		notes="Fixes Asset Value Analytics KeyError when FS get_period_list returns Jalali labels.",
 	),
 	IntegratedModule(
 		name="HRMS Display Calendar",

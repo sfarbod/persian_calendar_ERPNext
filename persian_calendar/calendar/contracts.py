@@ -283,6 +283,19 @@ CONTRACTS: tuple[CallableContract, ...] = (
 			"Optional — soft-skip when HRMS missing."
 		),
 	),
+	# Fixed Asset Register chart (2.0.0)
+	CallableContract(
+		id="far.prepare_chart_data",
+		module="erpnext.assets.report.fixed_asset_register.fixed_asset_register",
+		attr="prepare_chart_data",
+		params=(ParamSpec("data"), ParamSpec("filters")),
+		prefer_captured_original=True,
+		original_state_attr="original_far_prepare_chart_data",
+		notes=(
+			"Upstream buckets by formatdate MMM YYYY against get_period_list labels. "
+			"Jalali path allocates by period from_date/to_date; labels presentation-only."
+		),
+	),
 )
 
 

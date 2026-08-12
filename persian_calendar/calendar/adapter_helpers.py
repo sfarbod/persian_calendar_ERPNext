@@ -181,6 +181,69 @@ def lookup_period_key(posting_date, bounds: list[tuple[date, date, str]]) -> str
 	return None
 
 
+def _period_attr(period: Any, name: str) -> Any:
+	if hasattr(period, "get"):
+		return period.get(name)
+	return getattr(period, name, None)
+
+
+def find_period_for_date(period_list: list[Any] | None, value_date) -> Any | None:
+	"""Return the first period whose inclusive Gregorian bounds contain *value_date*.
+
+	Works with ERPNext ``get_period_list`` dicts and ``BusinessPeriod`` objects.
+	Uses ``from_date`` / ``to_date`` only — never presentation ``label``.
+	"""
+	if value_date is None or not period_list:
+		return None
+	posting = getdate(value_date)
+	for period in period_list:
+		start = _period_attr(period, "from_date")
+		end = _period_attr(period, "to_date")
+		if start is None or end is None:
+			continue
+		if getdate(start) <= posting <= getdate(end):
+			return period
+	return None
+
+
+def find_period_index_for_date(period_list: list[Any] | None, value_date) -> int | None:
+	"""Index of ``find_period_for_date`` result, or None."""
+	if value_date is None or not period_list:
+		return None
+	posting = getdate(value_date)
+	for idx, period in enumerate(period_list):
+		start = _period_attr(period, "from_date")
+		end = _period_attr(period, "to_date")
+		if start is None or end is None:
+			continue
+		if getdate(start) <= posting <= getdate(end):
+			return idx
+	return None
+
+
+def aggregate_by_period_bounds(
+	period_list: list[Any],
+	rows: list[Any],
+	*,
+	date_of: Callable[[Any], Any],
+	accumulate: Callable[[dict[str, Any], Any], None],
+	empty_bucket: Callable[[], dict[str, Any]] | None = None,
+) -> list[tuple[Any, dict[str, Any]]]:
+	"""Allocate *rows* into periods by Gregorian date bounds (not labels).
+
+	Returns ``[(period, bucket), ...]`` in *period_list* order. Presentation
+	labels must be read from ``period`` only after aggregation.
+	"""
+	make_bucket = empty_bucket or (lambda: {})
+	buckets = [make_bucket() for _ in period_list]
+	for row in rows:
+		idx = find_period_index_for_date(period_list, date_of(row))
+		if idx is None:
+			continue
+		accumulate(buckets[idx], row)
+	return list(zip(period_list, buckets, strict=True))
+
+
 def set_attr_or_item(obj: Any, key: str, value: Any) -> None:
 	"""Set on mapping-like filters or plain objects."""
 	try:
