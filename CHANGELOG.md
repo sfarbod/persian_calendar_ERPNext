@@ -5,6 +5,33 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-08-12
+
+### Added
+
+- Shared period-bound allocation helpers: `find_period_for_date`,
+  `find_period_index_for_date`, `aggregate_by_period_bounds`.
+- Fixed Asset Register `prepare_chart_data` Business Calendar adapter
+  (Jalali → allocate by `from_date`/`to_date`; Gregorian → stock parity).
+- Contract `far.prepare_chart_data` and registry/diagnostics coverage.
+
+### Fixed
+
+- **Assets / Asset Value Analytics:** `KeyError: 'Apr 2026'` when Company Business
+  Calendar is Jalali. Upstream FAR chart keyed Gregorian `formatdate(..., "MMM YYYY")`
+  against Jalali `get_period_list` labels.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.31.0 |
+| ERPNext | 16.32.0 |
+
+No schema/data migration required from 1.9.0.
+
+See [`docs/RELEASE_2_0_0.md`](docs/RELEASE_2_0_0.md).
+
 ## [1.9.0] — 2026-08-04
 
 ### Fixed

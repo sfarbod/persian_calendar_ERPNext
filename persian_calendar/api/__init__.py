@@ -11,7 +11,10 @@ imports so upgrades can preserve compatibility.
 from __future__ import annotations
 
 from persian_calendar.calendar.adapter_helpers import (
+	aggregate_by_period_bounds,
 	build_jalali_periods,
+	find_period_for_date,
+	find_period_index_for_date,
 	lookup_period_key,
 	period_bounds_index,
 	report_locale,
@@ -79,11 +82,14 @@ __all__ = [
 	"CompatibilityStatus",
 	"PatchStatus",
 	"ReleaseLevel",
+	"aggregate_by_period_bounds",
 	"apply_calendar_patches",
 	"build_jalali_periods",
 	"capture_original",
 	"clear_business_calendar_cache",
 	"detect_compatibility",
+	"find_period_for_date",
+	"find_period_index_for_date",
 	"format_period_label",
 	"get_business_calendar_for_company",
 	"get_patch_state",

@@ -19,8 +19,8 @@ class CompatibilityStatus(str, Enum):
 
 
 # Versions validated for Release 1.9.0 (Frappe ControlDatetime.sync_datepicker_state).
-VALIDATED_ERPNEXT = "16.30.0"
-VALIDATED_FRAPPE = "16.29.0"
+VALIDATED_ERPNEXT = "16.32.0"
+VALIDATED_FRAPPE = "16.31.0"
 SUPPORTED_ERPNEXT_MAJOR = 16
 SUPPORTED_FRAPPE_MAJOR = 16
 

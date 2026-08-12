@@ -55,6 +55,7 @@ TRENDS_MODULE_PATH = "erpnext.controllers.trends"
 BVR_MODULE_PATH = "erpnext.accounts.report.budget_variance_report.budget_variance_report"
 SPA_MODULE_PATH = "erpnext.crm.report.sales_pipeline_analytics.sales_pipeline_analytics"
 VEHICLE_EXPENSES_MODULE_PATH = "hrms.hr.report.vehicle_expenses.vehicle_expenses"
+FIXED_ASSET_REGISTER_MODULE_PATH = "erpnext.assets.report.fixed_asset_register.fixed_asset_register"
 SALES_ANALYTICS_MODULE_PATH = "erpnext.selling.report.sales_analytics.sales_analytics"
 STOCK_ANALYTICS_MODULE_PATH = "erpnext.stock.report.stock_analytics.stock_analytics"
 
@@ -116,6 +117,10 @@ class PatchState:
 	original_vehicle_expenses_get_chart_data: Callable[..., Any] | None = None
 	adapter_vehicle_expenses_get_chart_data: Callable[..., Any] | None = None
 	vehicle_expenses_patched: bool = False
+	# Fixed Asset Register chart (prepare_chart_data) — label≠key under Jalali BC
+	original_far_prepare_chart_data: Callable[..., Any] | None = None
+	adapter_far_prepare_chart_data: Callable[..., Any] | None = None
+	fixed_asset_register_patched: bool = False
 	# Sales / Purchase Analytics (shared Analytics class methods)
 	original_sa_get_period_date_ranges: Callable[..., Any] | None = None
 	original_sa_get_period: Callable[..., Any] | None = None
@@ -179,6 +184,7 @@ def reset_calendar_patches_for_tests() -> None:
 			)
 	from persian_calendar.calendar.integrations import budget_variance as bvr_adapter_mod
 	from persian_calendar.calendar.integrations import financial_statements as fs_adapter_mod
+	from persian_calendar.calendar.integrations import fixed_asset_register as far_adapter_mod
 	from persian_calendar.calendar.integrations import monthly_distribution as md_adapter_mod
 	from persian_calendar.calendar.integrations import sales_analytics as sa_adapter_mod
 	from persian_calendar.calendar.integrations import sales_pipeline_analytics as spa_adapter_mod
@@ -249,6 +255,12 @@ def reset_calendar_patches_for_tests() -> None:
 			if getattr(ve_mod, "get_chart_data", None) is _state.adapter_vehicle_expenses_get_chart_data:
 				ve_mod.get_chart_data = _state.original_vehicle_expenses_get_chart_data
 
+	if _state.original_far_prepare_chart_data is not None:
+		far_mod = sys.modules.get(FIXED_ASSET_REGISTER_MODULE_PATH)
+		if far_mod is not None and _state.adapter_far_prepare_chart_data is not None:
+			if getattr(far_mod, "prepare_chart_data", None) is _state.adapter_far_prepare_chart_data:
+				far_mod.prepare_chart_data = _state.original_far_prepare_chart_data
+
 	fs_adapter_mod._original_get_period_list = None
 	md_adapter_mod._original_get_periodwise_distribution_data = None
 	md_adapter_mod._original_get_percentage = None
@@ -256,6 +268,7 @@ def reset_calendar_patches_for_tests() -> None:
 	bvr_adapter_mod._original_execute = None
 	spa_adapter_mod._original_execute = None
 	ve_adapter_mod._original_get_chart_data = None
+	far_adapter_mod._original_prepare_chart_data = None
 	sa_adapter_mod._original_get_period_date_ranges = None
 	sa_adapter_mod._original_get_period = None
 	sa_adapter_mod._original_get_columns = None
@@ -278,11 +291,13 @@ def apply_calendar_patches() -> PatchStatus:
 	Phase 3d-2: Stock Analytics free functions + manufacturing rebinds.
 	Phase 5A-3: Sales Pipeline Analytics ``execute``.
 	Phase 6A: HRMS Vehicle Expenses ``get_chart_data``.
+	Phase 2.0: Fixed Asset Register ``prepare_chart_data`` (label≠key).
 
 	Registered free-function / method targets (in order):
 	FS ``get_period_list`` → MD periodwise/% → Trends ``get_period_date_ranges``
 	→ BVR ``execute`` → Sales Analytics methods → Stock Analytics helpers
-	→ Sales Pipeline Analytics ``execute`` → Vehicle Expenses ``get_chart_data``.
+	→ Sales Pipeline Analytics ``execute`` → Vehicle Expenses ``get_chart_data``
+	→ Fixed Asset Register ``prepare_chart_data``.
 
 	Idempotent when already successfully applied. Retries after
 	``SOURCE_UNAVAILABLE``, ``PARTIAL_REBIND``, or ``FAILED``.
@@ -325,6 +340,11 @@ def apply_calendar_patches() -> PatchStatus:
 	if ve_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
 		_state.status = ve_status
 		return ve_status
+
+	far_status = _apply_fixed_asset_register_patch()
+	if far_status in (PatchStatus.FAILED, PatchStatus.SOURCE_UNAVAILABLE, PatchStatus.PARTIAL_REBIND):
+		_state.status = far_status
+		return far_status
 
 	_state.status = PatchStatus.APPLIED
 	_state.last_error = None
@@ -815,8 +835,7 @@ def _apply_sales_pipeline_patch() -> PatchStatus:
 	if _state.original_sales_pipeline_execute is None:
 		if current is adapter:
 			_state.last_error = (
-				"sales_pipeline_analytics.execute is already the adapter but "
-				"original was never captured"
+				"sales_pipeline_analytics.execute is already the adapter but " "original was never captured"
 			)
 			logger.error(_state.last_error)
 			return PatchStatus.FAILED
@@ -865,8 +884,7 @@ def _apply_vehicle_expenses_patch() -> PatchStatus:
 	if _state.original_vehicle_expenses_get_chart_data is None:
 		if current is adapter:
 			_state.last_error = (
-				"vehicle_expenses.get_chart_data is already the adapter but "
-				"original was never captured"
+				"vehicle_expenses.get_chart_data is already the adapter but " "original was never captured"
 			)
 			logger.error(_state.last_error)
 			return PatchStatus.FAILED
@@ -881,6 +899,56 @@ def _apply_vehicle_expenses_patch() -> PatchStatus:
 
 	_state.vehicle_expenses_patched = True
 	logger.info("Calendar HRMS Vehicle Expenses get_chart_data patch applied")
+	return PatchStatus.APPLIED
+
+
+def _apply_fixed_asset_register_patch() -> PatchStatus:
+	"""Patch FAR ``prepare_chart_data`` to allocate by period bounds under Jalali BC."""
+	global _state
+
+	from persian_calendar.calendar.integrations.fixed_asset_register import (
+		prepare_chart_data as adapter,
+	)
+	from persian_calendar.calendar.integrations.fixed_asset_register import (
+		set_original_prepare_chart_data,
+	)
+
+	if (
+		_state.original_far_prepare_chart_data is not None
+		and _state.adapter_far_prepare_chart_data is adapter
+	):
+		far_mod = sys.modules.get(FIXED_ASSET_REGISTER_MODULE_PATH)
+		if far_mod is not None and getattr(far_mod, "prepare_chart_data", None) is adapter:
+			return PatchStatus.APPLIED
+
+	try:
+		import erpnext.assets.report.fixed_asset_register.fixed_asset_register as far_mod
+	except ImportError as exc:
+		_state.last_error = f"Fixed Asset Register unavailable: {exc}"
+		logger.error(_state.last_error)
+		return PatchStatus.SOURCE_UNAVAILABLE
+
+	current = far_mod.prepare_chart_data
+
+	if _state.original_far_prepare_chart_data is None:
+		if current is adapter:
+			_state.last_error = (
+				"fixed_asset_register.prepare_chart_data is already the adapter but "
+				"original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_far_prepare_chart_data = current
+
+	original = _state.original_far_prepare_chart_data
+	_state.adapter_far_prepare_chart_data = adapter
+	set_original_prepare_chart_data(original)
+
+	if current is not adapter:
+		far_mod.prepare_chart_data = adapter
+
+	_state.fixed_asset_register_patched = True
+	logger.info("Calendar Fixed Asset Register prepare_chart_data patch applied")
 	return PatchStatus.APPLIED
 
 
