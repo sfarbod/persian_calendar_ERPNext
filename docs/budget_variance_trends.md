@@ -1,13 +1,19 @@
-# Budget Variance & Trends — Business Calendar Integration (Phase 3c)
+# Budget Variance & Trends — Business Calendar Integration (Phase 3c / 2.0.1)
 
 ## Goals
 
-Make ERPNext **Budget Variance** and the shared Trends period helper
-`erpnext.controllers.trends.get_period_date_ranges` use the **Company Business
-Calendar**, while Gregorian companies keep exact stock ERPNext behavior.
+Make ERPNext **Budget Variance** and the shared Trends helpers
+`erpnext.controllers.trends.get_period_date_ranges` and
+`period_wise_columns_query` use the **Company Business Calendar**, while
+Gregorian companies keep exact stock ERPNext behavior.
 
-Out of scope for this phase: Sales / Purchase / Stock Analytics, Forecast redesign,
-MRP, HRMS, Subscription, UI/datepicker work.
+**2.0.1:** Jalali Trends reports use Jalali period **labels** as well as Jalali
+`BETWEEN` boundaries (fixes Purchase/Sales Invoice Trends showing `Mar`/`Apr`
+while aggregating on Farvardin/Ordibehesht ranges).
+
+Out of scope: Issue Analytics / Ticket Analytics / Customer Acquisition (Gregorian
+`months[date.month]` / `%Y-%m` — deferred), Forecast redesign, MRP, Subscription,
+UI/datepicker work.
 
 ## Architecture
 
@@ -17,18 +23,22 @@ CalendarEngine
 BusinessPeriodEngine          ← canonical period boundaries
     ↓
 trends.get_period_date_ranges adapter
+trends.period_wise_columns_query adapter   ← 2.0.1 column labels
 budget_variance.execute adapter
     ↓
-ERPNext consumers (BVR, Trends reports via in-module calls)
+ERPNext consumers (BVR, all * Trends reports via get_columns/get_data)
 ```
 
 Single applicator: `persian_calendar.calendar.patches.apply_calendar_patches()`.
 
-## Installed Trends contract (ERPNext v16.29)
+## Installed Trends contract (ERPNext v16.29+)
 
 ```python
 get_period_date_ranges(period, fiscal_year=None, year_start_date=None)
     → list[[start_date, end_date], ...]
+
+period_wise_columns_query(filters, trans)
+    → (period_columns, period_select_sql)
 ```
 
 | Aspect | Stock behavior |
@@ -36,8 +46,8 @@ get_period_date_ranges(period, fiscal_year=None, year_start_date=None)
 | Periodicities | Monthly, Quarterly, Half-Yearly, Yearly |
 | Inputs | Fiscal Year name (loads start/end) or `year_start_date` |
 | Boundaries | Inclusive Gregorian dates via `relativedelta` |
-| Labels | Not returned — callers use `strftime` / `formatdate` |
-| Company | **Not in signature** |
+| Labels | Stock: `strftime("%b")` on range start; Jalali adapter: Persian month names |
+| Company | **Not in stock signature**; adapter accepts `company=` / uses filters |
 | Accumulated | Not handled here — consumers accumulate themselves |
 
 ### Direct-import inventory
@@ -46,20 +56,22 @@ get_period_date_ranges(period, fiscal_year=None, year_start_date=None)
 |--------|--------|
 | `budget_variance_report.py` | `from erpnext.controllers.trends import get_period_date_ranges` |
 | Same-module | `period_wise_columns_query`, `get_period_month_ranges` |
+| Purchase/Sales Invoice Trends, Order/Quotation/Receipt/DN Trends | `get_columns`, `get_data` |
 
 **Not** the same function: `stock_analytics.get_period_date_ranges`,
-`sales_analytics` / `issue_analytics` methods — left untouched.
+`sales_analytics` / `issue_analytics` methods — separate contracts.
 
 Trends report modules import `get_columns` / `get_data` only; they pick up the
-patched module attribute automatically.
+patched module attributes automatically.
 
 ## Company / Business Calendar resolution (Trends)
 
 1. Explicit `company=` keyword (adapter extension; stock callers omit it)
-2. `frappe.local.form_dict.company` (report filters)
-3. Fiscal Year Company links — **reject mixed Business Calendars**
-4. User default company → Global Defaults
-5. Else Gregorian safe default
+2. `filters.company` in `period_wise_columns_query` (2.0.1 — preferred for Trends)
+3. `frappe.local.form_dict.company` (report filters)
+4. Fiscal Year Company links — **reject mixed Business Calendars**
+5. User default company → Global Defaults
+6. Else Gregorian safe default
 
 Display Calendar is never consulted.
 

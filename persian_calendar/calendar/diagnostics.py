@@ -72,7 +72,7 @@ TECHNICAL_DEBT = (
 	"Asset disposal patch outside apply_calendar_patches / test reset",
 	"Sales/Stock quarter-half first-day snap still uses small jdatetime helper",
 	"toshamshi: out-of-range month/day strings may overflow via jdatetime (not rejected)",
-	"toshamshi: years 1601–1699 treated as Gregorian (heuristic gap)",
+	"toshamshi: years 1601-1699 treated as Gregorian (heuristic gap)",
 	"CRM: Appointment email uses format_datetime (Gregorian); First Response chart axis raw ISO",
 )
 
@@ -248,6 +248,7 @@ def validate_patch_registry() -> list[str]:
 		),
 		(MD_MODULE_PATH, "get_percentage", "adapter_get_percentage", True),
 		(TRENDS_MODULE_PATH, "get_period_date_ranges", "adapter_get_period_date_ranges", True),
+		(TRENDS_MODULE_PATH, "period_wise_columns_query", "adapter_period_wise_columns_query", True),
 		(BVR_MODULE_PATH, "execute", "adapter_budget_variance_execute", True),
 		(SPA_MODULE_PATH, "execute", "adapter_sales_pipeline_execute", True),
 		(STOCK_ANALYTICS_MODULE_PATH, "get_period_date_ranges", "adapter_stk_get_period_date_ranges", True),
@@ -283,6 +284,7 @@ def validate_patch_registry() -> list[str]:
 			"adapter_get_periodwise_distribution_data": "original_get_periodwise_distribution_data",
 			"adapter_get_percentage": "original_get_percentage",
 			"adapter_get_period_date_ranges": "original_get_period_date_ranges",
+			"adapter_period_wise_columns_query": "original_period_wise_columns_query",
 			"adapter_budget_variance_execute": "original_budget_variance_execute",
 			"adapter_sales_pipeline_execute": "original_sales_pipeline_execute",
 			"adapter_vehicle_expenses_get_chart_data": "original_vehicle_expenses_get_chart_data",

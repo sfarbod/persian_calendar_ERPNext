@@ -98,6 +98,17 @@ CONTRACTS: tuple[CallableContract, ...] = (
 		original_state_attr="original_get_period_date_ranges",
 		notes="Different contract from stock_analytics.get_period_date_ranges.",
 	),
+	CallableContract(
+		id="trends.period_wise_columns_query",
+		module="erpnext.controllers.trends",
+		attr="period_wise_columns_query",
+		params=(
+			ParamSpec("filters"),
+			ParamSpec("trans"),
+		),
+		original_state_attr="original_period_wise_columns_query",
+		notes="Jalali BC: Jalali column labels + company-aware ranges; Gregorian → stock.",
+	),
 	# Monthly Distribution
 	CallableContract(
 		id="md.get_periodwise_distribution_data",

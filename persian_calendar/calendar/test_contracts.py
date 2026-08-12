@@ -51,6 +51,7 @@ class TestErpnextContracts(unittest.TestCase):
 		required = {
 			"fs.get_period_list",
 			"trends.get_period_date_ranges",
+			"trends.period_wise_columns_query",
 			"md.get_periodwise_distribution_data",
 			"md.get_percentage",
 			"bvr.execute",
