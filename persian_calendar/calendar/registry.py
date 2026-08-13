@@ -110,12 +110,24 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 	IntegratedModule(
 		name="Trends",
 		status="implemented",
-		patch_targets=("erpnext.controllers.trends.get_period_date_ranges",),
-		consumers=("erpnext.accounts.report.budget_variance_report.budget_variance_report",),
+		patch_targets=(
+			"erpnext.controllers.trends.get_period_date_ranges",
+			"erpnext.controllers.trends.period_wise_columns_query",
+		),
+		consumers=(
+			"erpnext.accounts.report.budget_variance_report.budget_variance_report",
+			"erpnext.accounts.report.purchase_invoice_trends.purchase_invoice_trends",
+			"erpnext.accounts.report.sales_invoice_trends.sales_invoice_trends",
+			"erpnext.buying.report.purchase_order_trends.purchase_order_trends",
+			"erpnext.selling.report.sales_order_trends.sales_order_trends",
+			"erpnext.selling.report.quotation_trends.quotation_trends",
+			"erpnext.stock.report.purchase_receipt_trends.purchase_receipt_trends",
+			"erpnext.stock.report.delivery_note_trends.delivery_note_trends",
+		),
 		supported_periods=("Monthly", "Quarterly", "Half-Yearly", "Yearly"),
 		documentation="docs/budget_variance_trends.md",
-		compatibility_note="Contract: trends.get_period_date_ranges — NOT Stock/Sales",
-		diagnostics_ids=("trends.get_period_date_ranges",),
+		compatibility_note="Contracts: trends.get_period_date_ranges, trends.period_wise_columns_query",
+		diagnostics_ids=("trends.get_period_date_ranges", "trends.period_wise_columns_query"),
 		mechanism="apply_calendar_patches",
 	),
 	IntegratedModule(
@@ -278,7 +290,7 @@ INTEGRATED_MODULES: tuple[IntegratedModule, ...] = (
 		patch_targets=(),
 		documentation="docs/HRMS_BUSINESS_CALENDAR.md",
 		mechanism="Global desk Display Calendar on standard Date/Datetime fields",
-		notes="No HRMS-specific display adapters. Payroll month Select (1–12) remains Gregorian UI.",
+		notes="No HRMS-specific display adapters. Payroll month Select (1-12) remains Gregorian UI.",
 	),
 	IntegratedModule(
 		name="HRMS Payroll / Attendance period reports",

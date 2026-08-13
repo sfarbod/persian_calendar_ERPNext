@@ -59,9 +59,14 @@ class TestTrendsPatchLifecycle(unittest.TestCase):
 		import erpnext.controllers.trends as trends_mod
 
 		self.assertIs(trends_mod.get_period_date_ranges, trends_adapter.get_period_date_ranges)
+		self.assertIs(trends_mod.period_wise_columns_query, trends_adapter.period_wise_columns_query)
 		self.assertIsNot(
 			get_patch_state().original_get_period_date_ranges,
 			trends_adapter.get_period_date_ranges,
+		)
+		self.assertIsNot(
+			get_patch_state().original_period_wise_columns_query,
+			trends_adapter.period_wise_columns_query,
 		)
 
 	def test_bvr_imported_before_patch_is_rebound(self):
@@ -363,6 +368,247 @@ class TestNoGlobalUtilsPatch(unittest.TestCase):
 		from frappe.utils import formatdate as fd
 
 		self.assertIs(fd, fu.formatdate)
+
+
+class TestTrendsColumnLabels(unittest.TestCase):
+	"""2.0.1 — Jalali column labels (not Gregorian %b) with Jalali BETWEEN bounds."""
+
+	def setUp(self):
+		reset_calendar_patches_for_tests()
+		apply_calendar_patches()
+
+	def tearDown(self):
+		reset_calendar_patches_for_tests()
+
+	def test_format_trends_column_label_monthly_en(self):
+		from persian_calendar.calendar.period_labels import format_trends_column_label
+
+		# Farvardin 1405 ≈ 2026-03-21 → 2026-04-20
+		self.assertEqual(
+			format_trends_column_label(_j(1405, 1, 1), _j(1405, 1, 31), "Monthly", locale="en"),
+			"Farvardin",
+		)
+		self.assertEqual(
+			format_trends_column_label(_j(1405, 2, 1), _j(1405, 2, 31), "Monthly", locale="en"),
+			"Ordibehesht",
+		)
+		self.assertEqual(
+			format_trends_column_label(_j(1405, 12, 1), _j(1405, 12, 29), "Monthly", locale="en"),
+			"Esfand",
+		)
+
+	def test_format_trends_column_label_quarterly_half(self):
+		from persian_calendar.calendar.period_labels import format_trends_column_label
+
+		self.assertEqual(
+			format_trends_column_label(_j(1405, 1, 1), _j(1405, 3, 31), "Quarterly", locale="en"),
+			"Farvardin-Khordad",
+		)
+		self.assertEqual(
+			format_trends_column_label(_j(1405, 7, 1), _j(1405, 12, 29), "Half-Yearly", locale="en"),
+			"Mehr-Esfand",
+		)
+
+	def test_april_gregorian_date_is_farvardin_not_apr_label(self):
+		"""Cosmetic Mar→Farvardin rename is forbidden — 2026-04-05 is Farvardin."""
+		from persian_calendar.calendar.period_labels import format_trends_column_label
+
+		# Mid Farvardin after Gregorian April starts
+		self.assertEqual(
+			format_trends_column_label(date(2026, 3, 21), date(2026, 4, 20), "Monthly", locale="en"),
+			"Farvardin",
+		)
+		# Must NOT be "Apr"
+		self.assertNotEqual(
+			format_trends_column_label(date(2026, 3, 21), date(2026, 4, 20), "Monthly", locale="en"),
+			"Apr",
+		)
+
+	def _columns(self, period="Monthly", company="J Co", fiscal_year="1405"):
+		filters = {
+			"period": period,
+			"fiscal_year": fiscal_year,
+			"company": company,
+			"based_on": "Item",
+			"period_based_on": "posting_date",
+		}
+		start, end = _j(1405, 1, 1), _j(1405, 12, 29)
+		with (
+			patch(
+				"persian_calendar.calendar.integrations.trends.get_business_calendar_for_company",
+				return_value="Jalali",
+			),
+			patch(
+				"persian_calendar.calendar.integrations.trends.frappe.get_cached_value",
+				return_value=(start, end),
+			),
+			patch(
+				"persian_calendar.calendar.adapter_helpers.report_locale",
+				return_value="en",
+			),
+		):
+			return trends_adapter.period_wise_columns_query(filters, "Purchase Invoice")
+
+	def test_jalali_monthly_columns_farvardin_esfand(self):
+		pwc, query = self._columns("Monthly")
+		labels = [c.split(" (")[0] for c in pwc if "(Qty)" in c]
+		self.assertEqual(
+			labels,
+			[
+				"Farvardin",
+				"Ordibehesht",
+				"Khordad",
+				"Tir",
+				"Mordad",
+				"Shahrivar",
+				"Mehr",
+				"Aban",
+				"Azar",
+				"Dey",
+				"Bahman",
+				"Esfand",
+			],
+		)
+		# No Gregorian abbreviations
+		for bad in ("Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb"):
+			self.assertNotIn(bad, labels)
+
+	def test_jalali_monthly_sql_uses_jalali_bounds(self):
+		_pwc, query = self._columns("Monthly")
+		# Farvardin 1405 and Ordibehesht 1405 boundaries
+		self.assertIn(str(_j(1405, 1, 1)), query)
+		self.assertIn(str(_j(1405, 1, 31)), query)
+		self.assertIn(str(_j(1405, 2, 1)), query)
+		# Boundary proof: last day Farvardin vs first Ordibehesht
+		self.assertEqual(_j(1405, 1, 31), date(2026, 4, 20))
+		self.assertEqual(_j(1405, 2, 1), date(2026, 4, 21))
+
+	def test_boundary_dates_map_to_correct_period_index(self):
+		"""Allocate by inclusive bounds — not month-name strings."""
+		start, end = _j(1405, 1, 1), _j(1405, 12, 29)
+		with (
+			patch(
+				"persian_calendar.calendar.integrations.trends.get_business_calendar_for_company",
+				return_value="Jalali",
+			),
+			patch(
+				"persian_calendar.calendar.integrations.trends.frappe.get_cached_value",
+				return_value=(start, end),
+			),
+		):
+			ranges = trends_adapter.get_period_date_ranges("Monthly", fiscal_year="1405", company="J")
+
+		# Validate user-requested boundary dates against jdatetime, then against ranges
+		probe_dates = [
+			date(2026, 3, 20),
+			date(2026, 3, 21),
+			date(2026, 4, 20),
+			date(2026, 4, 21),
+			date(2026, 5, 21),
+			date(2026, 5, 22),
+			date(2026, 6, 21),
+			date(2026, 6, 22),
+			date(2026, 9, 22),
+			date(2026, 9, 23),
+			date(2027, 3, 20),
+			date(2027, 3, 21),
+		]
+		# Explicit known anchors
+		self.assertEqual(jdatetime.date.fromgregorian(date=date(2026, 3, 21)), jdatetime.date(1405, 1, 1))
+		self.assertEqual(jdatetime.date.fromgregorian(date=date(2026, 4, 20)), jdatetime.date(1405, 1, 31))
+		self.assertEqual(jdatetime.date.fromgregorian(date=date(2026, 4, 21)), jdatetime.date(1405, 2, 1))
+		self.assertEqual(jdatetime.date.fromgregorian(date=date(2026, 5, 21)), jdatetime.date(1405, 2, 31))
+		self.assertEqual(jdatetime.date.fromgregorian(date=date(2026, 5, 22)), jdatetime.date(1405, 3, 1))
+
+		for posting in probe_dates:
+			j = jdatetime.date.fromgregorian(date=posting)
+			expected_idx = None
+			if j.year == 1405:
+				expected_idx = j.month - 1
+			found = None
+			for i, (sd, ed) in enumerate(ranges):
+				if sd <= posting <= ed:
+					found = i
+					break
+			self.assertEqual(
+				found,
+				expected_idx,
+				f"{posting} (j={j}) → period {found}, expected {expected_idx}",
+			)
+		# Cross-month Gregorian April split
+		self.assertEqual(ranges[0], [date(2026, 3, 21), date(2026, 4, 20)])
+		self.assertEqual(ranges[1], [date(2026, 4, 21), date(2026, 5, 21)])
+
+	def test_quarterly_half_yearly_yearly_columns(self):
+		pwc_q, _ = self._columns("Quarterly")
+		q_labels = [c.split(" (")[0] for c in pwc_q if "(Qty)" in c]
+		self.assertEqual(
+			q_labels,
+			[
+				"Farvardin-Khordad",
+				"Tir-Shahrivar",
+				"Mehr-Azar",
+				"Dey-Esfand",
+			],
+		)
+		pwc_h, _ = self._columns("Half-Yearly")
+		h_labels = [c.split(" (")[0] for c in pwc_h if "(Qty)" in c]
+		self.assertEqual(h_labels, ["Farvardin-Shahrivar", "Mehr-Esfand"])
+		pwc_y, query_y = self._columns("Yearly")
+		self.assertIn("1405", pwc_y[0])
+		self.assertIn("SUM(t2.stock_qty)", query_y)
+
+	def test_gregorian_columns_delegate_to_stock(self):
+		sentinel = (["Jan (Qty):Float:120"], "STOCK_SQL")
+
+		def fake_original(filters, trans):
+			return sentinel
+
+		prev = trends_adapter._original_period_wise_columns_query
+		trends_adapter._original_period_wise_columns_query = fake_original
+		try:
+			with patch(
+				"persian_calendar.calendar.integrations.trends.get_business_calendar_for_company",
+				return_value="Gregorian",
+			):
+				got = trends_adapter.period_wise_columns_query(
+					{"company": "G", "period": "Monthly", "fiscal_year": "2026"},
+					"Purchase Invoice",
+				)
+			self.assertIs(got, sentinel)
+		finally:
+			trends_adapter._original_period_wise_columns_query = prev
+
+	def test_company_filter_wins_over_form_default(self):
+		"""Report company must drive BC — not only user default company."""
+		start, end = _j(1405, 1, 1), _j(1405, 12, 29)
+		filters = {
+			"period": "Monthly",
+			"fiscal_year": "1405",
+			"company": "Jalali Co",
+			"based_on": "Item",
+		}
+
+		def bc_for(company):
+			return "Jalali" if company == "Jalali Co" else "Gregorian"
+
+		with (
+			patch(
+				"persian_calendar.calendar.integrations.trends.get_business_calendar_for_company",
+				side_effect=bc_for,
+			),
+			patch(
+				"persian_calendar.calendar.integrations.trends.frappe.get_cached_value",
+				return_value=(start, end),
+			),
+			patch(
+				"persian_calendar.calendar.adapter_helpers.report_locale",
+				return_value="en",
+			),
+		):
+			pwc, _ = trends_adapter.period_wise_columns_query(filters, "Sales Invoice")
+		labels = [c.split(" (")[0] for c in pwc if "(Qty)" in c]
+		self.assertEqual(labels[0], "Farvardin")
 
 
 if __name__ == "__main__":

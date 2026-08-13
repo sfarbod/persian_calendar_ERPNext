@@ -5,6 +5,36 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] — 2026-07-29
+
+### Fixed
+
+- **Trends reports (Purchase/Sales Invoice Trends and shared family):** Jalali Business
+  Calendar companies no longer show Gregorian `Mar`/`Apr`/… column labels while
+  aggregating on Jalali `BETWEEN` bounds. Column labels now use Jalali period names
+  (Farvardin…Esfand; quarterly/half-yearly spans). Aggregation remains inclusive
+  Gregorian date bounds from `BusinessPeriodEngine` — not cosmetic month renames.
+- Trends `period_wise_columns_query` now passes report `company` into
+  `get_period_date_ranges` for stable multi-company resolution.
+
+### Added
+
+- `format_trends_column_label` presentation helper.
+- Contract `trends.period_wise_columns_query` + diagnostics/registry coverage.
+- Boundary and label tests for Trends Monthly/Quarterly/Half-Yearly/Yearly.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.31.0 |
+| ERPNext | 16.32.0 |
+
+No schema/data migration required from 2.0.0. Gregorian companies retain upstream
+Trends behavior. Fixed Asset Register (2.0.0) unchanged.
+
+See [`docs/RELEASE_2_0_1.md`](docs/RELEASE_2_0_1.md).
+
 ## [2.0.0] — 2026-08-12
 
 ### Added

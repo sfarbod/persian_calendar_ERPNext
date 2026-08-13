@@ -44,6 +44,38 @@ _JALALI_MONTH_NAMES_EN = [
 ]
 
 
+def format_trends_column_label(
+	from_date: date,
+	to_date: date,
+	periodicity: str,
+	*,
+	locale: str = "en",
+) -> str:
+	"""Short Trends-style column label (matches stock ``get_mon`` brevity).
+
+	Stock Monthly uses ``%b`` only (no year). Stock Quarterly/Half-Yearly uses
+	``Mon-Mon``. Jalali mirrors that with Persian month names — never Gregorian
+	month abbreviations for Jalali Business Calendar periods.
+
+	Labels are presentation-only; allocation must use ``from_date``/``to_date``.
+	"""
+	import jdatetime
+
+	j_from = jdatetime.date.fromgregorian(date=from_date)
+	j_to = jdatetime.date.fromgregorian(date=to_date)
+	names = _JALALI_MONTH_NAMES_FA if locale == "fa" else _JALALI_MONTH_NAMES_EN
+
+	if periodicity == "Monthly":
+		# Prefer start-of-period month (same Jalali month as end for Monthly buckets)
+		return names[j_from.month - 1]
+
+	if periodicity in ("Quarterly", "Half-Yearly"):
+		return f"{names[j_from.month - 1]}-{names[j_to.month - 1]}"
+
+	# Yearly Trends columns use Fiscal Year name in the report, not this helper
+	return str(j_to.year)
+
+
 def format_period_label(
 	period: BusinessPeriod,
 	*,

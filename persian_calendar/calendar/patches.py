@@ -102,9 +102,11 @@ class PatchState:
 	original_get_percentage: Callable[..., Any] | None = None
 	adapter_get_percentage: Callable[..., Any] | None = None
 	md_rebound_modules: list[str] = field(default_factory=list)
-	# Trends get_period_date_ranges
+	# Trends get_period_date_ranges + period_wise_columns_query (labels)
 	original_get_period_date_ranges: Callable[..., Any] | None = None
 	adapter_get_period_date_ranges: Callable[..., Any] | None = None
+	original_period_wise_columns_query: Callable[..., Any] | None = None
+	adapter_period_wise_columns_query: Callable[..., Any] | None = None
 	trends_rebound_modules: list[str] = field(default_factory=list)
 	# Budget Variance report execute
 	original_budget_variance_execute: Callable[..., Any] | None = None
@@ -236,6 +238,12 @@ def reset_calendar_patches_for_tests() -> None:
 				"get_period_date_ranges",
 				TRENDS_PERIOD_RANGES_CONSUMERS,
 			)
+		if trends_mod is not None and _state.adapter_period_wise_columns_query is not None:
+			if (
+				getattr(trends_mod, "period_wise_columns_query", None)
+				is _state.adapter_period_wise_columns_query
+			):
+				trends_mod.period_wise_columns_query = _state.original_period_wise_columns_query
 
 	if _state.original_budget_variance_execute is not None:
 		bvr_mod = sys.modules.get(BVR_MODULE_PATH)
@@ -265,6 +273,7 @@ def reset_calendar_patches_for_tests() -> None:
 	md_adapter_mod._original_get_periodwise_distribution_data = None
 	md_adapter_mod._original_get_percentage = None
 	trends_adapter_mod._original_get_period_date_ranges = None
+	trends_adapter_mod._original_period_wise_columns_query = None
 	bvr_adapter_mod._original_execute = None
 	spa_adapter_mod._original_execute = None
 	ve_adapter_mod._original_get_chart_data = None
@@ -520,25 +529,35 @@ def _apply_monthly_distribution_patch() -> PatchStatus:
 
 
 def _apply_trends_patch() -> PatchStatus:
-	"""Patch ``erpnext.controllers.trends.get_period_date_ranges``."""
+	"""Patch Trends ``get_period_date_ranges`` + ``period_wise_columns_query``."""
 	global _state
 
 	from persian_calendar.calendar.integrations.trends import (
-		get_period_date_ranges as adapter,
+		get_period_date_ranges as ranges_adapter,
+	)
+	from persian_calendar.calendar.integrations.trends import (
+		period_wise_columns_query as columns_adapter,
 	)
 	from persian_calendar.calendar.integrations.trends import (
 		set_original_get_period_date_ranges,
+		set_original_period_wise_columns_query,
 	)
 
 	if (
 		_state.original_get_period_date_ranges is not None
-		and _state.adapter_get_period_date_ranges is adapter
+		and _state.adapter_get_period_date_ranges is ranges_adapter
+		and _state.original_period_wise_columns_query is not None
+		and _state.adapter_period_wise_columns_query is columns_adapter
 	):
 		trends_mod = sys.modules.get(TRENDS_MODULE_PATH)
-		if trends_mod is not None and getattr(trends_mod, "get_period_date_ranges", None) is adapter:
+		if (
+			trends_mod is not None
+			and getattr(trends_mod, "get_period_date_ranges", None) is ranges_adapter
+			and getattr(trends_mod, "period_wise_columns_query", None) is columns_adapter
+		):
 			rebound = _rebind_named_consumers(
 				_state.original_get_period_date_ranges,
-				adapter,
+				ranges_adapter,
 				"get_period_date_ranges",
 				TRENDS_PERIOD_RANGES_CONSUMERS,
 				TRENDS_MODULE_PATH,
@@ -555,27 +574,42 @@ def _apply_trends_patch() -> PatchStatus:
 		logger.warning(_state.last_error)
 		return PatchStatus.SOURCE_UNAVAILABLE
 
-	current = trends_mod.get_period_date_ranges
+	current_ranges = trends_mod.get_period_date_ranges
+	current_columns = trends_mod.period_wise_columns_query
 
 	if _state.original_get_period_date_ranges is None:
-		if current is adapter:
+		if current_ranges is ranges_adapter:
 			_state.last_error = (
 				"get_period_date_ranges is already the adapter but original was never captured"
 			)
 			logger.error(_state.last_error)
 			return PatchStatus.FAILED
-		_state.original_get_period_date_ranges = current
+		_state.original_get_period_date_ranges = current_ranges
 
-	original = _state.original_get_period_date_ranges
-	_state.adapter_get_period_date_ranges = adapter
-	set_original_get_period_date_ranges(original)
+	if _state.original_period_wise_columns_query is None:
+		if current_columns is columns_adapter:
+			_state.last_error = (
+				"period_wise_columns_query is already the adapter but original was never captured"
+			)
+			logger.error(_state.last_error)
+			return PatchStatus.FAILED
+		_state.original_period_wise_columns_query = current_columns
 
-	if current is not adapter:
-		trends_mod.get_period_date_ranges = adapter
+	original_ranges = _state.original_get_period_date_ranges
+	original_columns = _state.original_period_wise_columns_query
+	_state.adapter_get_period_date_ranges = ranges_adapter
+	_state.adapter_period_wise_columns_query = columns_adapter
+	set_original_get_period_date_ranges(original_ranges)
+	set_original_period_wise_columns_query(original_columns)
+
+	if current_ranges is not ranges_adapter:
+		trends_mod.get_period_date_ranges = ranges_adapter
+	if current_columns is not columns_adapter:
+		trends_mod.period_wise_columns_query = columns_adapter
 
 	rebound = _rebind_named_consumers(
-		original,
-		adapter,
+		original_ranges,
+		ranges_adapter,
 		"get_period_date_ranges",
 		TRENDS_PERIOD_RANGES_CONSUMERS,
 		TRENDS_MODULE_PATH,
@@ -583,7 +617,7 @@ def _apply_trends_patch() -> PatchStatus:
 	_state.trends_rebound_modules = list(dict.fromkeys(_state.trends_rebound_modules + rebound))
 
 	still = _loaded_known_consumers_still_on_original(
-		original, "get_period_date_ranges", TRENDS_PERIOD_RANGES_CONSUMERS
+		original_ranges, "get_period_date_ranges", TRENDS_PERIOD_RANGES_CONSUMERS
 	)
 	if still:
 		_state.last_error = f"Failed to rebind Trends consumers: {', '.join(still)}"
