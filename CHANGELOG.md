@@ -5,6 +5,37 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] — 2026-09-06
+
+### Fixed
+
+- **List View → Export Data:** "Export dates as Jalali" now appears in Frappe's
+  standard export dialog and converts Date/Datetime cells when checked.
+  Previous attempts failed because (1) `DataExporter` loads lazily via
+  `data_import_tools.bundle.js` and was never patched, (2) `dialog.add_field`
+  does not exist on Frappe Dialog, and (3) `data_import.Exporter` built rows in
+  `__init__` before the Jalali flag was set.
+- **download_template:** Aligned with Frappe v16 `order_by` / List sort settings
+  while accepting `export_dates_as_jalali` from kwargs or `form_dict`.
+
+### Added
+
+- Shared List View export tests (`test_list_export_jalali`) covering Date,
+  Datetime, empty values, Data-field non-conversion, child tables, CSV/Excel,
+  and Gregorian default.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.31.0 |
+| ERPNext | 16.32.0 |
+
+Gregorian remains the default. Filters and permissions are unchanged. Existing
+Data Export page Jalali support is reused (same helpers and flag name).
+
+See [`docs/RELEASE_2_0_2.md`](docs/RELEASE_2_0_2.md).
+
 ## [2.0.1] — 2026-07-29
 
 ### Fixed

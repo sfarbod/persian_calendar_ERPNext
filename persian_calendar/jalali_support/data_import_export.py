@@ -34,8 +34,10 @@ def _patch_data_export_exporter() -> None:
 	_orig_export_data = mod.export_data
 
 	def __init__(self, *args, export_dates_as_jalali=False, **kwargs):
-		_orig_init(self, *args, **kwargs)
+		# Set before stock init for consistency (data_export builds rows later,
+		# but callers may rely on the attribute immediately).
 		self.export_dates_as_jalali = cint(export_dates_as_jalali)
+		_orig_init(self, *args, **kwargs)
 
 	def add_data_row(self, rows, dt, parentfield, doc, rowidx):
 		if not getattr(self, "export_dates_as_jalali", 0):
@@ -139,8 +141,10 @@ def _patch_data_import_exporter() -> None:
 	_orig_add_data_row = mod.Exporter.add_data_row
 
 	def __init__(self, *args, export_dates_as_jalali=False, **kwargs):
-		_orig_init(self, *args, **kwargs)
+		# Flag must be set before stock __init__: data_import.Exporter builds
+		# rows (add_data_row) during construction.
 		self.export_dates_as_jalali = cint(export_dates_as_jalali)
+		_orig_init(self, *args, **kwargs)
 
 	def add_data_row(self, doctype, parentfield, doc, rows, row_idx):
 		rows = _orig_add_data_row(self, doctype, parentfield, doc, rows, row_idx)
@@ -162,33 +166,60 @@ def _patch_data_import_exporter() -> None:
 
 def _patch_download_template() -> None:
 	from frappe.core.doctype.data_import import data_import as mod
+	from frappe.core.doctype.data_import.exporter import Exporter
+	from frappe.model.utils.user_settings import get_user_settings
 
 	if getattr(mod.download_template, "_jalali_patched", False):
 		return
 
 	@frappe.whitelist()
 	def download_template(
-		doctype,
+		doctype: str,
 		export_fields=None,
 		export_records=None,
 		export_filters=None,
-		file_type="CSV",
+		file_type: str = "CSV",
 		export_dates_as_jalali=False,
 	):
+		"""List View / Data Import template download — Frappe v16 + Jalali flag.
+
+		Mirrors upstream ``download_template`` (incl. List sort order_by) and
+		accepts per-export ``export_dates_as_jalali`` from form_dict or kwargs.
+		"""
 		frappe.has_permission(doctype, "read", throw=True)
 
 		export_fields = frappe.parse_json(export_fields)
 		export_filters = frappe.parse_json(export_filters)
-		export_data_flag = export_records != "blank_template"
+		export_data = export_records != "blank_template"
 
-		e = mod.Exporter(
+		list_settings = frappe.parse_json(get_user_settings(doctype)).get("List", {})
+		sort_by = list_settings.get("sort_by")
+		sort_order = list_settings.get("sort_order")
+
+		if sort_by and not frappe.get_meta(doctype).get_field(sort_by):
+			sort_by = None
+
+		if sort_order and sort_order.upper() not in ("ASC", "DESC"):
+			sort_order = None
+
+		order_by = f"{sort_by} {sort_order}" if sort_by and sort_order else None
+
+		fd = frappe.form_dict or {}
+		if "export_dates_as_jalali" in fd:
+			raw_jalali = fd.get("export_dates_as_jalali")
+		else:
+			raw_jalali = export_dates_as_jalali
+		jalali_flag = cint(raw_jalali)
+
+		e = Exporter(
 			doctype,
 			export_fields=export_fields,
-			export_data=export_data_flag,
+			export_data=export_data,
 			export_filters=export_filters,
 			file_type=file_type,
 			export_page_length=5 if export_records == "5_records" else None,
-			export_dates_as_jalali=export_dates_as_jalali,
+			order_by=order_by,
+			export_dates_as_jalali=jalali_flag,
 		)
 		e.build_response()
 

@@ -1,9 +1,20 @@
-// Jalali toggles for Data Export / Data Import (persian_calendar)
+// Jalali toggles for Data Export / List View Export Data (persian_calendar)
+//
+// Extension points (Frappe v16):
+// - Data Export form: Custom Field / injected checkbox + open_url_post →
+//   frappe.core.doctype.data_export.exporter.export_data
+// - List View Export: frappe.data_import.DataExporter (lazy bundle
+//   data_import_tools.bundle.js) → download_template → data_import.Exporter
+//
+// Do not convert CSV text with regex. Conversion is fieldtype-driven on the server.
 
 frappe.provide("persian_calendar.data_io");
 
 const JALALI_DATA_IO_DEBUG = false;
 const DATA_EXPORT_API_METHOD = "frappe.core.doctype.data_export.exporter.export_data";
+const DOWNLOAD_TEMPLATE_API =
+	"/api/method/frappe.core.doctype.data_import.data_import.download_template";
+const DATA_IMPORT_TOOLS_BUNDLE = "data_import_tools.bundle.js";
 
 function jalali_data_io_log(...args) {
 	if (JALALI_DATA_IO_DEBUG) {
@@ -14,7 +25,11 @@ function jalali_data_io_log(...args) {
 function get_data_export_frm() {
 	try {
 		const route = frappe.get_route?.() || [];
-		if (route[0] === "Form" && route[1] === "Data Export" && cur_frm?.doctype === "Data Export") {
+		if (
+			route[0] === "Form" &&
+			route[1] === "Data Export" &&
+			cur_frm?.doctype === "Data Export"
+		) {
 			return cur_frm;
 		}
 	} catch (e) {
@@ -144,56 +159,141 @@ function setup_data_import_form() {
 	/* Custom Field import_dates_from_jalali is on the form; no extra JS required. */
 }
 
-function patch_data_exporter_dialog() {
+function jalali_export_field_df() {
+	return {
+		fieldtype: "Check",
+		fieldname: "export_dates_as_jalali",
+		label: __("Export dates as Jalali"),
+		default: 0,
+	};
+}
+
+/**
+ * Insert Export dates as Jalali after Export Type (or File Type) in dialog field defs.
+ * Dialog has no add_field(); FieldGroup.add_fields appends at the end — wrong UX.
+ */
+function with_jalali_export_field(fields) {
+	if (!Array.isArray(fields)) {
+		return fields;
+	}
+	if (fields.some((f) => f && f.fieldname === "export_dates_as_jalali")) {
+		return fields;
+	}
+	const out = fields.slice();
+	const after_export_type = out.findIndex((f) => f && f.fieldname === "export_records");
+	const after_file_type = out.findIndex((f) => f && f.fieldname === "file_type");
+	const insert_at =
+		after_export_type >= 0
+			? after_export_type + 1
+			: after_file_type >= 0
+			? after_file_type + 1
+			: 1;
+	out.splice(insert_at, 0, jalali_export_field_df());
+	return out;
+}
+
+function apply_data_exporter_jalali_patch() {
 	const DataExporter = frappe.data_import?.DataExporter;
 	if (!DataExporter || DataExporter._jalali_dialog_patched) {
-		return;
+		return Boolean(DataExporter);
 	}
 	DataExporter._jalali_dialog_patched = true;
 
 	const _make_dialog = DataExporter.prototype.make_dialog;
 	DataExporter.prototype.make_dialog = function (filetype = "CSV") {
-		_make_dialog.call(this, filetype);
-		const dialog = this.dialog;
-		if (!dialog || dialog._jalali_export_field_added) {
-			return;
-		}
-		if (typeof dialog.add_field === "function") {
-			dialog.add_field({
-				fieldtype: "Check",
-				fieldname: "export_dates_as_jalali",
-				label: __("Export dates as Jalali"),
-				insert_after: "file_type",
-			});
-			dialog._jalali_export_field_added = true;
+		const OrigDialog = frappe.ui.Dialog;
+		let restored = false;
+		const restore = () => {
+			if (!restored) {
+				frappe.ui.Dialog = OrigDialog;
+				restored = true;
+			}
+		};
+
+		// Temporarily wrap Dialog so Export Data fields include the Jalali checkbox
+		// at construction time (upgrade-safe vs copying make_dialog).
+		frappe.ui.Dialog = class JalaliAwareExportDialog extends OrigDialog {
+			constructor(opts) {
+				restore();
+				if (opts && Array.isArray(opts.fields)) {
+					opts = Object.assign({}, opts, {
+						fields: with_jalali_export_field(opts.fields),
+					});
+				}
+				super(opts);
+			}
+		};
+
+		try {
+			return _make_dialog.call(this, filetype);
+		} finally {
+			restore();
 		}
 	};
 
+	const _export_records = DataExporter.prototype.export_records;
 	DataExporter.prototype.export_records = function () {
-		const method = "/api/method/frappe.core.doctype.data_import.data_import.download_template";
-		const multicheck_fields = this.dialog.fields
-			.filter((df) => df.fieldtype === "MultiCheck")
-			.map((df) => df.fieldname);
-		const values = this.dialog.get_values();
-		const doctype_field_map = { ...values };
-		for (const key of Object.keys(doctype_field_map)) {
-			if (!multicheck_fields.includes(key)) {
-				delete doctype_field_map[key];
+		// Keep stock export_records; only append the per-export Jalali flag.
+		const orig_open = window.open_url_post;
+		const exporter = this;
+		window.open_url_post = function (url, args, new_window) {
+			try {
+				if (
+					url &&
+					String(url).indexOf("download_template") !== -1 &&
+					args &&
+					typeof args === "object" &&
+					!(typeof FormData !== "undefined" && args instanceof FormData)
+				) {
+					const values = exporter.dialog?.get_values?.() || {};
+					args.export_dates_as_jalali = values.export_dates_as_jalali ? 1 : 0;
+					jalali_data_io_log("list export flag", args.export_dates_as_jalali);
+				}
+			} catch (e) {
+				console.error("[persian_calendar] list export flag inject failed", e);
 			}
+			return orig_open.apply(this, arguments);
+		};
+		try {
+			return _export_records.apply(this, arguments);
+		} finally {
+			window.open_url_post = orig_open;
 		}
-		let filters = null;
-		if (values.export_records === "by_filter") {
-			filters = this.get_filters();
-		}
-		open_url_post(method, {
-			doctype: this.doctype,
-			file_type: values.file_type,
-			export_records: values.export_records,
-			export_fields: doctype_field_map,
-			export_filters: filters,
-			export_dates_as_jalali: values.export_dates_as_jalali ? 1 : 0,
-		});
 	};
+
+	jalali_data_io_log("DataExporter dialog patched");
+	return true;
+}
+
+/**
+ * DataExporter lives in data_import_tools.bundle.js and is loaded via frappe.require
+ * from BulkOperations.export — patch after that bundle loads.
+ */
+function patch_data_exporter_dialog() {
+	if (apply_data_exporter_jalali_patch()) {
+		return;
+	}
+	if (frappe.require?._jalali_data_exporter_hooked) {
+		return;
+	}
+
+	const original_require = frappe.require.bind(frappe);
+	function hooked_require(assets, callback) {
+		const list = Array.isArray(assets) ? assets : [assets];
+		const loads_exporter = list.some(
+			(a) => a && String(a).indexOf("data_import_tools") !== -1
+		);
+		if (loads_exporter && typeof callback === "function") {
+			const user_cb = callback;
+			callback = function () {
+				apply_data_exporter_jalali_patch();
+				return user_cb.apply(this, arguments);
+			};
+		}
+		return original_require(assets, callback);
+	}
+	hooked_require._jalali_data_exporter_hooked = true;
+	frappe.require = hooked_require;
 }
 
 $(() => {
