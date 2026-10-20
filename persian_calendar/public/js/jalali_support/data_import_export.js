@@ -1,10 +1,12 @@
 // Jalali toggles for Data Export / List View Export Data (persian_calendar)
 //
-// Extension points (Frappe v16):
+// Extension points (Frappe v16.52+ / ERPNext v16.51+):
 // - Data Export form: Custom Field / injected checkbox + open_url_post →
 //   frappe.core.doctype.data_export.exporter.export_data
 // - List View Export: frappe.data_import.DataExporter (lazy bundle
 //   data_import_tools.bundle.js) → download_template → data_import.Exporter
+//   Note: Exporter.add_data_row signature changed in Frappe 16.52
+//   (table_fieldname, doc, rows, row_idx). Server patches detect this.
 //
 // Do not convert CSV text with regex. Conversion is fieldtype-driven on the server.
 

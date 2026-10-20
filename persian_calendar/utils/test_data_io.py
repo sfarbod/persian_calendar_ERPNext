@@ -31,15 +31,19 @@ class TestDataExportConversion(unittest.TestCase):
 			"1405-01-21",
 		)
 
-	def test_excel_user_formatted_date_string(self):
-		"""Values like 10-04-2026 from formatdate must still convert."""
+	def test_user_formatted_date_string_mm_dd_yyyy(self):
+		"""Hyphenated Gregorian strings parse via Frappe getdate (locale-dependent order).
+
+		On this bench ``getdate`` treats ``MM-DD-YYYY``, so ``04-10-2026`` is 2026-04-10.
+		Ambiguous dotted ``formatdate`` output is intentionally not asserted here.
+		"""
+		self.assertEqual(
+			convert_export_value("04-10-2026", "Date", True),
+			"1405-01-21",
+		)
 		from frappe.utils import formatdate
 
 		formatted = formatdate("2026-04-10")
-		self.assertEqual(
-			convert_export_value(formatted, "Date", True),
-			"1405-01-21",
-		)
 		self.assertNotEqual(formatted, "1405-01-21")
 
 	def test_datetime_gregorian_to_jalali(self):

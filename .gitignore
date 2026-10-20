@@ -26,3 +26,5 @@ e2e/screenshots/
 
 # Local environment
 environment.json
+# Local working/staging artifacts (bank import trials, ad-hoc fixtures)
+staging/
