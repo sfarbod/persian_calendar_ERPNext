@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Persian Calendar contributors
 # License: MIT
 
-"""v2.0.2 — List View Export Data (download_template / data_import.Exporter) Jalali tests."""
+"""v2.1.0 — List View Export Data (download_template / data_import.Exporter) Jalali tests."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ class TestListViewExportJalali(FrappeTestCase):
 				hide_days=0,
 			)
 		]
-		rows = Exporter.add_data_row(exp, "User", None, {"first_name": "2026-09-06"}, [], 0)
+		rows = Exporter.add_data_row(exp, None, {"first_name": "2026-09-06"}, [], 0)
 		self.assertEqual(rows[0][0], "2026-09-06")
 
 	def test_exporter_converts_date_field_only(self):
@@ -165,7 +165,6 @@ class TestListViewExportJalali(FrappeTestCase):
 		]
 		rows = Exporter.add_data_row(
 			exp,
-			"User",
 			None,
 			{"birth_date": date(2026, 9, 6), "first_name": "2026-09-06"},
 			[],
@@ -201,7 +200,6 @@ class TestListViewExportJalali(FrappeTestCase):
 		]
 		rows = Exporter.add_data_row(
 			exp,
-			"Child",
 			"items",
 			{
 				"schedule_date": "2026-09-06",
