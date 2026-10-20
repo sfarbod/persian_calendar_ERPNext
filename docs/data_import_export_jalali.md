@@ -4,6 +4,11 @@ The **persian_calendar** app adds optional checkboxes on Frappe **Data Export**,
 **List View → Export Data**, and **Data Import** to convert dates only in the
 file (database values stay Gregorian).
 
+> **Frappe 16.52+:** Persian Calendar **2.1.0** adapts to the renamed
+> `Exporter.add_data_row(table_fieldname, doc, rows, row_idx)` API. Upgrade to
+> 2.1.0 (or later) before using List View Export with Jalali on Frappe ≥16.52.
+> See [`RELEASE_2_1_0.md`](RELEASE_2_1_0.md).
+
 ## Setup
 
 After install or upgrade:

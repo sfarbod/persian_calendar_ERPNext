@@ -5,6 +5,36 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-10-20
+
+### Fixed
+
+- **List View / download_template HTTP 500** after Frappe **16.52** / ERPNext **16.51**:
+  upstream renamed ``Exporter.add_data_row(doctype, parentfield, doc, rows, row_idx)``
+  to ``add_data_row(table_fieldname, doc, rows, row_idx)``. Persian Calendar 2.0.2
+  still wrapped the old signature → ``TypeError`` during export. Wrappers now
+  detect the installed signature and rebind from stock Frappe source.
+- Patch re-apply after Frappe upgrades: versioned patch markers + stock-method
+  reload so a broken prior wrap cannot stick across deploys (worker restart still
+  required to load new Python).
+
+### Added
+
+- Compatibility tests (`test_frappe_io_compat`) for signature detection, idempotent
+  patch apply, download_template smoke, and import Jalali parse flag behavior.
+- Release notes: `docs/RELEASE_2_1_0.md`.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.52.0 |
+| ERPNext | 16.51.1 |
+
+Gregorian remains default when Jalali is unchecked. No Frappe/ERPNext core edits.
+
+See [`docs/RELEASE_2_1_0.md`](docs/RELEASE_2_1_0.md).
+
 ## [2.0.2] — 2026-09-06
 
 ### Fixed
