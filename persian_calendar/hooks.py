@@ -278,6 +278,7 @@ before_request = [
 	"persian_calendar.jalali_support.fiscal_year_override.setup_fiscal_year_override",
 	"persian_calendar.jalali_support.template_hooks.apply_template_patches",
 	"persian_calendar.jalali_support.data_import_export.apply_data_import_export_patches",
+	"persian_calendar.jalali_support.report_export.apply_report_export_patches",
 	"persian_calendar.calendar.integrations.assets.apply_asset_disposal_patch",
 	"persian_calendar.calendar.patches.before_request_calendar_bootstrap",
 ]

@@ -1,13 +1,17 @@
-# Jalali dates in Data Export and Data Import
+# Jalali dates in Data Export, List Export, Report Export, and Data Import
 
 The **persian_calendar** app adds optional checkboxes on Frappe **Data Export**,
-**List View → Export Data**, and **Data Import** to convert dates only in the
-file (database values stay Gregorian).
+**List View → Export Data**, **Query / Script / Report View Export**, and
+**Data Import** to convert dates only in the file (database values stay
+Gregorian).
 
 > **Frappe 16.52+:** Persian Calendar **2.1.0** adapts to the renamed
 > `Exporter.add_data_row(table_fieldname, doc, rows, row_idx)` API. Upgrade to
 > 2.1.0 (or later) before using List View Export with Jalali on Frappe ≥16.52.
 > See [`RELEASE_2_1_0.md`](RELEASE_2_1_0.md).
+>
+> **Report export:** Persian Calendar **2.1.1** adds the same checkbox to report
+> export dialogs. See [`RELEASE_2_1_1.md`](RELEASE_2_1_1.md).
 
 ## Setup
 
@@ -40,20 +44,39 @@ Custom fields:
 
 1. Open **Data Export**.
 2. Select DocType and fields (parent and child tables).
-3. Check **Export dates as Jalali**.
+3. **Export dates as Jalali** is checked by default (v2.1.1+); uncheck for Gregorian.
 4. Export CSV or Excel.
 
-## List View → Export Data (v2.0.2)
+## List View → Export Data (v2.0.2 / default ON in 2.1.1)
 
 1. Open any DocType List View (e.g. Purchase Invoice).
 2. Select records or rely on filters via Export Type.
 3. **Actions → Export** (or Export from the menu).
-4. In the **Export Data** dialog, check **Export dates as Jalali** (after Export Type).
+4. In the **Export Data** dialog, **Export dates as Jalali** is checked by default
+   (after Export Type); uncheck for Gregorian on this export.
 5. Choose fields and export CSV or Excel.
 
 Same flag name and conversion rules as the Data Export page. Unchecked = stock
 Frappe Gregorian output. Conversion is **fieldtype-driven** (`Date` / `Datetime`
 only), including child-table columns.
+
+## Report Export (v2.1.1)
+
+1. Open any Query Report or Script Report (e.g. **General Ledger**, **Stock Ledger**).
+2. Set filters and run the report.
+3. Click **Export**.
+4. **Export dates as Jalali** is **checked by default** — leave it on for Jalali,
+   or uncheck for Gregorian on this export only.
+5. Download CSV or Excel.
+
+Same label and per-export semantics as Data / List export. Conversion uses report
+column `fieldtype` metadata (`Date` / `Datetime` only) and strict ISO / date
+objects — ambiguous locale strings are left unchanged. Report calculations and
+desk result caches are not modified.
+
+Report View (Report Builder) export uses the same dialog and flag. If the request
+omits `export_dates_as_jalali`, the backend defaults to Jalali for report export
+paths; explicit `0` / `false` keeps Gregorian.
 
 ## Conversion rules
 
@@ -77,6 +100,7 @@ When unchecked, behaviour is standard Frappe/ERPNext.
 |------|----------|-------|
 | Data Export page | `data_export.exporter.export_data` | `jalali_support.data_import_export` |
 | List View dialog | `data_import.DataExporter` + `download_template` | JS: `public/js/jalali_support/data_import_export.js`; Python: same module |
+| Query / Script / Report View export | `query_report._export_query`, `reportview._export_query`, `report_utils.get_export_dialog` | Python: `jalali_support.report_export`; JS: `public/js/jalali_support/report_export.js` |
 | Helpers | — | `utils.data_io.convert_export_value` / `convert_import_value` |
 
 - No regex post-processing of CSV text
