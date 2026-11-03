@@ -5,6 +5,27 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] — 2026-11-03
+
+### Fixed
+
+- **Report export Datetime / date+time columns:** Jalali conversion now covers
+  Datetime metadata, ISO datetimes with fractional seconds and timezone offsets
+  (`Z`, `±HH:MM`), timezone-aware Python datetimes, midnight timestamps, and
+  incomplete column metadata (`None` / `Data`) when values are temporal objects
+  or ISO strings on date-like fieldnames (e.g. Stock Ledger `date`).
+- Time-only values (`Time`, `timedelta`, `HH:MM:SS`) remain unchanged.
+- Ambiguous locale date strings remain unchanged.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.54.0 |
+| ERPNext | 16.53.0 |
+
+See [`docs/RELEASE_2_1_2.md`](docs/RELEASE_2_1_2.md).
+
 ## [2.1.1] — 2026-10-20
 
 ### Added
