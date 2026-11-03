@@ -1,11 +1,11 @@
 # Copyright (c) 2026, Persian Calendar contributors
 # License: MIT
 
-"""v2.1.1 — Query Report / Report View export Jalali conversion tests."""
+"""v2.1.1 / v2.1.2 — Query Report / Report View export Jalali conversion tests."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 import frappe
@@ -19,7 +19,9 @@ from persian_calendar.jalali_support.report_export import (
 	convert_report_export_value,
 	convert_reportview_data_rows,
 	is_report_export_date_value,
+	is_time_only_value,
 	parse_export_dates_as_jalali,
+	resolve_report_export_fieldtype,
 	_read_jalali_flag,
 )
 from persian_calendar.utils.data_io import convert_export_value
@@ -74,6 +76,9 @@ class TestReportExportJalaliHelpers(FrappeTestCase):
 		self.assertTrue(is_report_export_date_value("2026-09-06"))
 		self.assertTrue(is_report_export_date_value("2026-09-06 14:35:12"))
 		self.assertTrue(is_report_export_date_value("2026-09-06T14:35:12"))
+		self.assertTrue(is_report_export_date_value("2026-09-06 14:35:12.123456"))
+		self.assertTrue(is_report_export_date_value("2026-09-06T14:35:12+03:30"))
+		self.assertTrue(is_report_export_date_value("2026-09-06T14:35:12Z"))
 		self.assertTrue(is_report_export_date_value(date(2026, 9, 6)))
 		self.assertTrue(is_report_export_date_value(datetime(2026, 9, 6, 14, 35, 12)))
 		self.assertFalse(is_report_export_date_value("10.04.2026"))
@@ -82,6 +87,7 @@ class TestReportExportJalaliHelpers(FrappeTestCase):
 		self.assertFalse(is_report_export_date_value(12345.67))
 		self.assertFalse(is_report_export_date_value(None))
 		self.assertFalse(is_report_export_date_value(""))
+		self.assertFalse(is_report_export_date_value("07:39:19"))
 
 	def test_convert_date_objects_and_iso(self):
 		expected = convert_export_value("2026-09-06", "Date", True)
@@ -97,6 +103,70 @@ class TestReportExportJalaliHelpers(FrappeTestCase):
 			convert_report_export_value("2026-09-06 14:35:12", "Datetime", True),
 			expected_dt,
 		)
+
+	def test_datetime_iso_variants_and_timezone(self):
+		expected_dt = convert_export_value("2026-11-03 14:30:45", "Datetime", True)
+		self.assertEqual(
+			convert_report_export_value("2026-11-03T14:30:45", "Datetime", True),
+			expected_dt,
+		)
+		self.assertEqual(
+			convert_report_export_value("2026-11-03 14:30:45.123456", "Datetime", True),
+			expected_dt,
+		)
+		self.assertEqual(
+			convert_report_export_value("2026-11-03T14:30:45+03:30", "Datetime", True),
+			expected_dt,
+		)
+		self.assertEqual(
+			convert_report_export_value("2026-11-03T14:30:45Z", "Datetime", True),
+			expected_dt,
+		)
+		aware = datetime(2026, 11, 3, 14, 30, 45, tzinfo=timezone(timedelta(hours=3, minutes=30)))
+		self.assertEqual(convert_report_export_value(aware, "Datetime", True), expected_dt)
+
+	def test_midnight_datetime_preserves_time(self):
+		expected = convert_export_value("2026-11-03 00:00:00", "Datetime", True)
+		self.assertEqual(
+			convert_report_export_value(datetime(2026, 11, 3, 0, 0, 0), "Datetime", True),
+			expected,
+		)
+		self.assertEqual(convert_report_export_value("2026-11-03 00:00:00", "Datetime", True), expected)
+		self.assertIn("00:00:00", expected)
+
+	def test_time_only_never_converted(self):
+		self.assertTrue(is_time_only_value("07:39:19"))
+		self.assertTrue(is_time_only_value(timedelta(seconds=27559)))
+		self.assertEqual(convert_report_export_value("07:39:19", "Time", True), "07:39:19")
+		self.assertEqual(
+			convert_report_export_value(timedelta(seconds=27559), "Data", True, fieldname="posting_time"),
+			timedelta(seconds=27559),
+		)
+
+	def test_incomplete_metadata_datetime_object(self):
+		expected_dt = convert_export_value("2026-11-03 14:30:45", "Datetime", True)
+		# fieldtype None / Data with Python datetime → convert
+		self.assertEqual(
+			convert_report_export_value(datetime(2026, 11, 3, 14, 30, 45), None, True),
+			expected_dt,
+		)
+		self.assertEqual(
+			convert_report_export_value(datetime(2026, 11, 3, 14, 30, 45), "Data", True),
+			expected_dt,
+		)
+		# ISO string on Data without date fieldname → unchanged
+		self.assertEqual(
+			convert_report_export_value("2026-11-03 14:30:45", "Data", True),
+			"2026-11-03 14:30:45",
+		)
+		# ISO string on Data with date fieldname → convert
+		self.assertEqual(
+			convert_report_export_value(
+				"2026-11-03 14:30:45", "Data", True, fieldname="date"
+			),
+			expected_dt,
+		)
+		self.assertEqual(resolve_report_export_fieldtype("Currency", datetime(2026, 11, 3, 1, 2, 3)), None)
 
 	def test_convert_off_and_empty(self):
 		self.assertEqual(convert_report_export_value("2026-09-06", "Date", False), "2026-09-06")
@@ -533,3 +603,183 @@ class TestQueryReportExportIntegration(FrappeTestCase):
 			self.assertIn(must_have, result)
 			if must_not:
 				self.assertNotIn(must_not, result)
+
+
+class TestStockLedgerStyleDatetimeExport(FrappeTestCase):
+	"""v2.1.2 — Stock Ledger-like Datetime column (generic, not report-specific)."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		apply_report_export_patches()
+
+	def setUp(self):
+		super().setUp()
+		frappe.local.response = frappe._dict()
+
+	def _stock_ledger_shaped(self):
+		return frappe._dict(
+			columns=[
+				{"label": "Date", "fieldname": "date", "fieldtype": "Datetime", "width": 150},
+				{"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "width": 100},
+				{"label": "Warehouse", "fieldname": "warehouse", "fieldtype": "Link", "width": 120},
+				{"label": "Voucher #", "fieldname": "voucher_no", "fieldtype": "Dynamic Link", "width": 120},
+				{"label": "Actual Qty", "fieldname": "actual_qty", "fieldtype": "Float", "width": 80},
+				{"label": "Valuation Rate", "fieldname": "valuation_rate", "fieldtype": "Currency", "width": 100},
+				{"label": "Stock Value", "fieldname": "stock_value", "fieldtype": "Currency", "width": 100},
+			],
+			result=[
+				{
+					"date": datetime(2026, 11, 3, 14, 30, 45),
+					"item_code": "ITEM-1",
+					"warehouse": "Stores - PC",
+					"voucher_no": "STE-0001",
+					"actual_qty": 10.0,
+					"valuation_rate": 12.3456,
+					"stock_value": 123.456,
+					# Present in SLE rows but not exported as columns:
+					"posting_date": date(2026, 11, 3),
+					"posting_time": timedelta(seconds=52245),
+				}
+			],
+			report_name="Stock Ledger",
+			filters={},
+			applied_filters={},
+			add_total_row=0,
+		)
+
+	def test_convert_query_result_datetime_preserves_qty(self):
+		data = self._stock_ledger_shaped()
+		converted = convert_query_report_result(data, True)
+		expected = convert_export_value("2026-11-03 14:30:45", "Datetime", True)
+		self.assertEqual(converted.result[0]["date"], expected)
+		self.assertEqual(converted.result[0]["item_code"], "ITEM-1")
+		self.assertEqual(converted.result[0]["voucher_no"], "STE-0001")
+		self.assertEqual(converted.result[0]["actual_qty"], 10.0)
+		self.assertEqual(converted.result[0]["valuation_rate"], 12.3456)
+		self.assertEqual(converted.result[0]["stock_value"], 123.456)
+		# posting_time untouched in row payload
+		self.assertEqual(converted.result[0]["posting_time"], timedelta(seconds=52245))
+		self.assertEqual(converted.columns[0]["fieldtype"], "Data")
+		# Original row untouched
+		self.assertEqual(data.result[0]["date"], datetime(2026, 11, 3, 14, 30, 45))
+
+	def test_export_csv_xlsx_stock_ledger_shape(self):
+		from unittest.mock import patch
+
+		from frappe.desk import query_report as mod
+
+		apply_report_export_patches()
+		expected = convert_export_value("2026-11-03 14:30:45", "Datetime", True)
+		base = self._stock_ledger_shaped()
+
+		for fmt in ("CSV", "Excel"):
+			for jalali, want_jalali in ((1, True), (0, False)):
+				frappe.local.response = frappe._dict()
+				fake = {
+					"columns": [dict(c) for c in base.columns],
+					"result": [dict(r) for r in base.result],
+					"add_total_row": 0,
+				}
+				form_params = frappe._dict(
+					report_name="Stock Ledger",
+					file_format_type=fmt,
+					filters={},
+					applied_filters={},
+					custom_columns="[]",
+					visible_idx=[],
+					ignore_visible_idx=1,
+					export_dates_as_jalali=jalali,
+				)
+				with patch.object(mod, "run", return_value=fake):
+					mod._export_query(form_params, {}, populate_response=True)
+				text = self._response_text() if hasattr(self, "_response_text") else ""
+				# Reuse helper from sibling class pattern
+				content = frappe.local.response.get("filecontent")
+				if isinstance(content, bytes) and content[:2] == b"PK":
+					wb = load_workbook(BytesIO(content), data_only=True)
+					parts = []
+					for row in wb.active.iter_rows(values_only=True):
+						for cell in row:
+							if cell is not None and str(cell).strip() != "":
+								parts.append(str(cell))
+					text = "\n".join(parts)
+				else:
+					text = cstr(content or "")
+
+				self.assertIn("STE-0001", text)
+				self.assertIn("ITEM-1", text)
+				if want_jalali:
+					self.assertIn(expected, text)
+				else:
+					self.assertNotIn(expected, text)
+					self.assertIn("2026", text)
+
+
+class TestDatetimeExportWrapper(FrappeTestCase):
+	"""Datetime-focused export wrapper cases."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		apply_report_export_patches()
+
+	def setUp(self):
+		super().setUp()
+		frappe.local.response = frappe._dict()
+
+	@staticmethod
+	def _response_text() -> str:
+		content = frappe.local.response.get("filecontent")
+		if content:
+			if isinstance(content, bytes) and content[:2] == b"PK":
+				wb = load_workbook(BytesIO(content), data_only=True)
+				parts = []
+				for row in wb.active.iter_rows(values_only=True):
+					for cell in row:
+						if cell is not None and str(cell).strip() != "":
+							parts.append(str(cell))
+				return "\n".join(parts)
+			return cstr(content)
+		return cstr(frappe.local.response.get("result") or "")
+
+	def test_datetime_column_csv_and_xlsx(self):
+		from unittest.mock import patch
+
+		from frappe.desk import query_report as mod
+
+		apply_report_export_patches()
+		expected = convert_export_value("2026-11-03 14:30:45", "Datetime", True)
+		fake = {
+			"columns": [
+				{"label": "Date", "fieldname": "date", "fieldtype": "Datetime", "width": 150},
+				{"label": "Qty", "fieldname": "qty", "fieldtype": "Float", "width": 80},
+			],
+			"result": [{"date": datetime(2026, 11, 3, 14, 30, 45), "qty": 5}],
+			"add_total_row": 0,
+		}
+		for fmt in ("CSV", "Excel"):
+			frappe.local.response = frappe._dict()
+			form_params = frappe._dict(
+				report_name="Stock Ledger",
+				file_format_type=fmt,
+				filters={},
+				applied_filters={},
+				custom_columns="[]",
+				visible_idx=[],
+				ignore_visible_idx=1,
+				export_dates_as_jalali=1,
+			)
+			with patch.object(
+				mod,
+				"run",
+				return_value={
+					"columns": [dict(c) for c in fake["columns"]],
+					"result": [dict(r) for r in fake["result"]],
+					"add_total_row": 0,
+				},
+			):
+				mod._export_query(form_params, {}, populate_response=True)
+			text = self._response_text()
+			self.assertIn(expected, text)
+			self.assertIn("5", text)
