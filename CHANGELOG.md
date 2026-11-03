@@ -5,6 +5,27 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] — 2026-10-20
+
+### Added
+
+- **Report Export — Export dates as Jalali:** Optional per-export checkbox on
+  Query Report / Script Report / Report View export dialogs (CSV and Excel).
+  Converts only columns with `fieldtype` Date or Datetime; Gregorian remains
+  the default when unchecked. Does not alter report calculations, filters, or
+  shared report result data.
+- Tests: `jalali_support.test_report_export_jalali`.
+- Release notes: `docs/RELEASE_2_1_1.md`.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.54.0 |
+| ERPNext | 16.53.0 |
+
+See [`docs/RELEASE_2_1_1.md`](docs/RELEASE_2_1_1.md).
+
 ## [2.1.0] — 2026-10-20
 
 ### Fixed

@@ -27,6 +27,7 @@ Real, current limitations only. Completed features are not listed here.
 | **First Response chart** | Axis may show raw ISO dates (not Display Calendar labels). |
 | **Standard Print `formatdate`** | Use explicit `toshamshi` / `toshamsi` for Jalali in Print Formats. |
 | **toshamshi heuristics** | Out-of-range month/day strings may overflow via jdatetime; years 1601–1699 treated as Gregorian. |
+| **Report export (2.1.1)** | Only columns with `fieldtype` Date/Datetime and ISO/`date` values convert; “Include filters” header values stay Gregorian; ambiguous locale date strings are left unchanged. |
 
 ### Resolved in 1.9.0
 
