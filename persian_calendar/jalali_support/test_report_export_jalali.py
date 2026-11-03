@@ -19,6 +19,8 @@ from persian_calendar.jalali_support.report_export import (
 	convert_report_export_value,
 	convert_reportview_data_rows,
 	is_report_export_date_value,
+	parse_export_dates_as_jalali,
+	_read_jalali_flag,
 )
 from persian_calendar.utils.data_io import convert_export_value
 
@@ -28,6 +30,33 @@ class TestReportExportJalaliHelpers(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		apply_report_export_patches()
+
+	def test_parse_flag_representations_true_false(self):
+		self.assertEqual(parse_export_dates_as_jalali(None), 1)
+		self.assertEqual(parse_export_dates_as_jalali(""), 1)
+		self.assertEqual(parse_export_dates_as_jalali(1), 1)
+		self.assertEqual(parse_export_dates_as_jalali("1"), 1)
+		self.assertEqual(parse_export_dates_as_jalali(True), 1)
+		self.assertEqual(parse_export_dates_as_jalali("true"), 1)
+		self.assertEqual(parse_export_dates_as_jalali("yes"), 1)
+		self.assertEqual(parse_export_dates_as_jalali(0), 0)
+		self.assertEqual(parse_export_dates_as_jalali("0"), 0)
+		self.assertEqual(parse_export_dates_as_jalali(False), 0)
+		self.assertEqual(parse_export_dates_as_jalali("false"), 0)
+		self.assertEqual(parse_export_dates_as_jalali("off"), 0)
+		# Explicit false must not become default
+		self.assertEqual(parse_export_dates_as_jalali(False, default=1), 0)
+		self.assertEqual(parse_export_dates_as_jalali("0", default=1), 0)
+
+	def test_read_jalali_flag_absent_defaults_on(self):
+		self.assertEqual(_read_jalali_flag(None), 1)
+		self.assertEqual(_read_jalali_flag(frappe._dict()), 1)
+		self.assertEqual(_read_jalali_flag({}), 1)
+		self.assertEqual(_read_jalali_flag({"export_dates_as_jalali": 0}), 0)
+		self.assertEqual(_read_jalali_flag({"export_dates_as_jalali": "0"}), 0)
+		self.assertEqual(_read_jalali_flag({"export_dates_as_jalali": False}), 0)
+		self.assertEqual(_read_jalali_flag({"export_dates_as_jalali": 1}), 1)
+		self.assertEqual(_read_jalali_flag({"export_dates_as_jalali": "true"}), 1)
 
 	def test_patch_idempotent(self):
 		from frappe.desk import query_report, reportview
@@ -402,6 +431,67 @@ class TestQueryReportExportIntegration(FrappeTestCase):
 		self.assertIn("2026", result)
 		self.assertNotIn(convert_export_value("2026-09-06", "Date", True), result)
 		self.assertIn("7", result)
+
+	def test_full_export_query_absent_flag_defaults_jalali(self):
+		"""Parameter absent → Jalali (v2.1.1 default)."""
+		from frappe.desk import query_report as mod
+		from unittest.mock import patch
+
+		apply_report_export_patches()
+		fake = {
+			"columns": [
+				{"label": "Posting Date", "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
+				{"label": "Debit", "fieldname": "debit", "fieldtype": "Currency", "width": 100},
+			],
+			"result": [{"posting_date": "2026-09-06", "debit": 3}],
+			"add_total_row": 0,
+		}
+		form_params = frappe._dict(
+			report_name="General Ledger",
+			file_format_type="CSV",
+			filters={},
+			applied_filters={},
+			custom_columns="[]",
+			visible_idx=[],
+			ignore_visible_idx=1,
+		)
+		self.assertNotIn("export_dates_as_jalali", form_params)
+		with patch.object(mod, "run", return_value=fake):
+			mod._export_query(form_params, {}, populate_response=True)
+
+		result = self._response_text()
+		expected = convert_export_value("2026-09-06", "Date", True)
+		self.assertIn(expected, result)
+		self.assertIn("3", result)
+
+	def test_full_export_query_string_false_is_gregorian(self):
+		from frappe.desk import query_report as mod
+		from unittest.mock import patch
+
+		apply_report_export_patches()
+		fake = {
+			"columns": [
+				{"label": "Posting Date", "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
+			],
+			"result": [{"posting_date": date(2026, 9, 6)}],
+			"add_total_row": 0,
+		}
+		form_params = frappe._dict(
+			report_name="General Ledger",
+			file_format_type="CSV",
+			filters={},
+			applied_filters={},
+			custom_columns="[]",
+			visible_idx=[],
+			ignore_visible_idx=1,
+			export_dates_as_jalali="false",
+		)
+		with patch.object(mod, "run", return_value=fake):
+			mod._export_query(form_params, {}, populate_response=True)
+
+		result = self._response_text()
+		self.assertIn("2026", result)
+		self.assertNotIn(convert_export_value("2026-09-06", "Date", True), result)
 
 	def test_repeated_exports_independent(self):
 		from frappe.desk import query_report as mod

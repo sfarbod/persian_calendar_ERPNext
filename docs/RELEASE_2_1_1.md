@@ -6,7 +6,10 @@ Adds an optional **Export dates as Jalali** checkbox to Frappe **Query Report**,
 **Script Report**, and **Report View** export dialogs (CSV / Excel), matching the
 existing Data Export and List View Export experience.
 
-- Per-export only; Gregorian remains the default when unchecked.
+- **Jalali is enabled by default** (checkbox checked). Users may uncheck it to
+  receive Gregorian dates for that export only.
+- When the request omits `export_dates_as_jalali`, report export defaults to Jalali.
+  Explicit `0` / `false` preserves Gregorian.
 - Conversion is **export-only** — report `run()` results, filters, sort order,
   accounting balances, and stock valuations are never mutated for desk display.
 - No Frappe / ERPNext core edits.
@@ -36,10 +39,14 @@ Uses the shared helpers in `persian_calendar.utils.data_io` /
 
 | Flag | Date | Datetime |
 |------|------|----------|
-| OFF | Stock Frappe (`formatdate` for CSV; date objects for Excel) | Stock |
-| ON | `2026-09-06` → `1405-06-15` | `2026-09-06 14:35:12` → `1405-06-15 14:35:12` |
+| ON (default) / absent | `2026-09-06` → `1405-06-15` | `2026-09-06 14:35:12` → `1405-06-15 14:35:12` |
+| OFF (`0` / `false`) | Stock Frappe (`formatdate` for CSV; date objects for Excel) | Stock |
 
 Time and seconds are preserved. Empty cells stay empty.
+
+Data Export and List View Export dialogs use the same checked-by-default checkbox
+label for consistency. Data Import remains opt-in (`import_dates_from_jalali`
+default unchecked).
 
 ## Validation notes
 

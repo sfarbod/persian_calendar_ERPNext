@@ -44,15 +44,16 @@ Custom fields:
 
 1. Open **Data Export**.
 2. Select DocType and fields (parent and child tables).
-3. Check **Export dates as Jalali**.
+3. **Export dates as Jalali** is checked by default (v2.1.1+); uncheck for Gregorian.
 4. Export CSV or Excel.
 
-## List View → Export Data (v2.0.2)
+## List View → Export Data (v2.0.2 / default ON in 2.1.1)
 
 1. Open any DocType List View (e.g. Purchase Invoice).
 2. Select records or rely on filters via Export Type.
 3. **Actions → Export** (or Export from the menu).
-4. In the **Export Data** dialog, check **Export dates as Jalali** (after Export Type).
+4. In the **Export Data** dialog, **Export dates as Jalali** is checked by default
+   (after Export Type); uncheck for Gregorian on this export.
 5. Choose fields and export CSV or Excel.
 
 Same flag name and conversion rules as the Data Export page. Unchecked = stock
@@ -64,7 +65,8 @@ only), including child-table columns.
 1. Open any Query Report or Script Report (e.g. **General Ledger**, **Stock Ledger**).
 2. Set filters and run the report.
 3. Click **Export**.
-4. Check **Export dates as Jalali**.
+4. **Export dates as Jalali** is **checked by default** — leave it on for Jalali,
+   or uncheck for Gregorian on this export only.
 5. Download CSV or Excel.
 
 Same label and per-export semantics as Data / List export. Conversion uses report
@@ -72,7 +74,9 @@ column `fieldtype` metadata (`Date` / `Datetime` only) and strict ISO / date
 objects — ambiguous locale strings are left unchanged. Report calculations and
 desk result caches are not modified.
 
-Report View (Report Builder) export uses the same dialog and flag.
+Report View (Report Builder) export uses the same dialog and flag. If the request
+omits `export_dates_as_jalali`, the backend defaults to Jalali for report export
+paths; explicit `0` / `false` keeps Gregorian.
 
 ## Conversion rules
 

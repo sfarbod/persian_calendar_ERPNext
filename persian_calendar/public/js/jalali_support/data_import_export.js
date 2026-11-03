@@ -130,7 +130,7 @@ function inject_data_export_jalali_checkbox(frm) {
 		<div class="form-group frappe-control jalali-export-dates-check" style="margin-top: 8px;">
 			<div class="checkbox">
 				<label>
-					<input type="checkbox" class="jalali-export-dates-input">
+					<input type="checkbox" class="jalali-export-dates-input" checked>
 					<span>${__("Export dates as Jalali")}</span>
 				</label>
 			</div>
@@ -146,7 +146,10 @@ function inject_data_export_jalali_checkbox(frm) {
 	});
 
 	frm._jalali_export_checkbox_injected = true;
-	frm._export_dates_as_jalali = frm._export_dates_as_jalali || 0;
+	// Default ON (Jalali); only override if caller already set an explicit value.
+	if (typeof frm._export_dates_as_jalali === "undefined") {
+		frm._export_dates_as_jalali = 1;
+	}
 }
 
 function setup_data_export_form() {
@@ -166,7 +169,8 @@ function jalali_export_field_df() {
 		fieldtype: "Check",
 		fieldname: "export_dates_as_jalali",
 		label: __("Export dates as Jalali"),
-		default: 0,
+		// Align with Report Export (2.1.1): Jalali checked by default; user may uncheck.
+		default: 1,
 	};
 }
 

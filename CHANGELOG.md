@@ -11,9 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Report Export — Export dates as Jalali:** Optional per-export checkbox on
   Query Report / Script Report / Report View export dialogs (CSV and Excel).
-  Converts only columns with `fieldtype` Date or Datetime; Gregorian remains
-  the default when unchecked. Does not alter report calculations, filters, or
+  Converts only columns with `fieldtype` Date or Datetime. **Jalali is the
+  default** (checkbox checked; absent request param → Jalali). Uncheck for
+  Gregorian on that export. Does not alter report calculations, filters, or
   shared report result data.
+- Data Export / List View Export checkbox defaults aligned to checked for UX
+  consistency (Import Jalali remains opt-in).
 - Tests: `jalali_support.test_report_export_jalali`.
 - Release notes: `docs/RELEASE_2_1_1.md`.
 

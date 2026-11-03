@@ -17,7 +17,8 @@ function jalali_report_export_field_df() {
 		fieldtype: "Check",
 		fieldname: "export_dates_as_jalali",
 		label: __("Export dates as Jalali"),
-		default: 0,
+		// Jalali is the default; user may uncheck for Gregorian on this export only.
+		default: 1,
 	};
 }
 
@@ -35,6 +36,16 @@ function is_report_export_cmd(cmd) {
 		cmd === "frappe.desk.query_report.export_query" ||
 		cmd === "frappe.desk.reportview.export_query"
 	);
+}
+
+function cint_like(v) {
+	if (v === true || v === 1 || v === "1") {
+		return 1;
+	}
+	if (v === false || v === 0 || v === "0" || v === "" || v == null) {
+		return 0;
+	}
+	return v ? 1 : 0;
 }
 
 function inject_jalali_flag_into_args(args, flag) {
@@ -61,12 +72,26 @@ function apply_report_export_dialog_patch() {
 	utils.get_export_dialog = function (report_name, extra_fields, callback) {
 		const fields = with_jalali_report_export_field(extra_fields);
 		const wrapped = function (values) {
-			const flag = values && values.export_dates_as_jalali ? 1 : 0;
+			// Respect the dialog value for this export only (default field is checked).
+			// Explicit unchecked → 0; do not fall back to a stale prior flag.
+			const flag = values && cint_like(values.export_dates_as_jalali) ? 1 : 0;
 			frappe._jalali_report_export_flag = flag;
 			jalali_report_export_log("dialog flag", flag);
 			return callback.apply(this, arguments);
 		};
-		return _orig.call(this, report_name, fields, wrapped);
+		const dialog = _orig.call(this, report_name, fields, wrapped);
+		// Ensure default stays checked if the dialog framework clears Check defaults.
+		try {
+			if (dialog && typeof dialog.set_value === "function") {
+				const current = dialog.get_value?.("export_dates_as_jalali");
+				if (current === undefined || current === null || current === "") {
+					dialog.set_value("export_dates_as_jalali", 1);
+				}
+			}
+		} catch (e) {
+			jalali_report_export_log("default set_value skipped", e);
+		}
+		return dialog;
 	};
 	utils.get_export_dialog._jalali_report_patched = true;
 	utils.get_export_dialog._jalali_orig = _orig;
@@ -80,10 +105,20 @@ function apply_report_export_transport_patch() {
 		window.open_url_post = function (url, args, new_window) {
 			try {
 				if (args && is_report_export_cmd(args.cmd)) {
-					const flag =
-						typeof frappe._jalali_report_export_flag !== "undefined"
-							? frappe._jalali_report_export_flag
-							: 0;
+					// Prefer the value already on args (explicit user choice), else dialog flag,
+					// else Jalali default (1). Never treat an explicit 0 as missing.
+					let flag;
+					if (
+						args.export_dates_as_jalali !== undefined &&
+						args.export_dates_as_jalali !== null &&
+						args.export_dates_as_jalali !== ""
+					) {
+						flag = cint_like(args.export_dates_as_jalali);
+					} else if (typeof frappe._jalali_report_export_flag !== "undefined") {
+						flag = cint_like(frappe._jalali_report_export_flag);
+					} else {
+						flag = 1;
+					}
 					inject_jalali_flag_into_args(args, flag);
 					jalali_report_export_log("open_url_post flag", flag);
 				}
@@ -104,10 +139,18 @@ function apply_report_export_transport_patch() {
 				const method = o.method || (o.args && o.args.cmd);
 				const args = o.args;
 				if (args && is_report_export_cmd(method || args.cmd)) {
-					const flag =
-						typeof frappe._jalali_report_export_flag !== "undefined"
-							? frappe._jalali_report_export_flag
-							: 0;
+					let flag;
+					if (
+						args.export_dates_as_jalali !== undefined &&
+						args.export_dates_as_jalali !== null &&
+						args.export_dates_as_jalali !== ""
+					) {
+						flag = cint_like(args.export_dates_as_jalali);
+					} else if (typeof frappe._jalali_report_export_flag !== "undefined") {
+						flag = cint_like(frappe._jalali_report_export_flag);
+					} else {
+						flag = 1;
+					}
 					inject_jalali_flag_into_args(args, flag);
 					jalali_report_export_log("frappe.call flag", flag);
 				}

@@ -2,9 +2,17 @@
 # License: MIT
 
 import frappe
+from frappe.utils import cstr
 
 
-def _ensure_custom_field(dt: str, fieldname: str, label: str, insert_after: str) -> None:
+def _ensure_custom_field(
+	dt: str,
+	fieldname: str,
+	label: str,
+	insert_after: str,
+	*,
+	default: str = "0",
+) -> None:
 	existing = frappe.db.get_value("Custom Field", {"dt": dt, "fieldname": fieldname})
 	if existing:
 		doc = frappe.get_doc("Custom Field", existing)
@@ -14,6 +22,10 @@ def _ensure_custom_field(dt: str, fieldname: str, label: str, insert_after: str)
 			updated = True
 		if insert_after and doc.insert_after != insert_after:
 			doc.insert_after = insert_after
+			updated = True
+		# Keep Data Export Jalali checkbox default in sync (2.1.1+).
+		if default is not None and cstr(doc.default) != cstr(default):
+			doc.default = default
 			updated = True
 		if updated:
 			doc.save(ignore_permissions=True)
@@ -26,7 +38,7 @@ def _ensure_custom_field(dt: str, fieldname: str, label: str, insert_after: str)
 	doc.fieldname = fieldname
 	doc.fieldtype = "Check"
 	doc.insert_after = insert_after
-	doc.default = "0"
+	doc.default = default
 	doc.hidden = 0
 	doc.insert(ignore_permissions=True)
 
@@ -38,12 +50,14 @@ def create_data_import_export_fields() -> None:
 		"export_dates_as_jalali",
 		"Export dates as Jalali",
 		"file_type",
+		default="1",
 	)
 	_ensure_custom_field(
 		"Data Import",
 		"import_dates_from_jalali",
 		"Import dates from Jalali",
 		"import_type",
+		default="0",
 	)
 	frappe.db.commit()
 	frappe.clear_cache(doctype="Data Export")

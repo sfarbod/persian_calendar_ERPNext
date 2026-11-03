@@ -29,8 +29,9 @@ from persian_calendar.utils.data_io import convert_export_value
 logger = logging.getLogger("persian_calendar.report_export")
 
 _patches_applied = False
-_QUERY_REPORT_PATCH_VERSION = 1
-_REPORTVIEW_PATCH_VERSION = 1
+# v2: Jalali is the default when export_dates_as_jalali is absent.
+_QUERY_REPORT_PATCH_VERSION = 2
+_REPORTVIEW_PATCH_VERSION = 2
 
 # Strict ISO-like date/datetime only — no locale-ambiguous forms (dd/mm/yyyy, 10.04.2026).
 _ISO_DATE_RE = re.compile(
@@ -186,16 +187,56 @@ def convert_reportview_data_rows(
 	return out
 
 
-def _read_jalali_flag(form_params) -> int:
-	if form_params is None:
+def parse_export_dates_as_jalali(raw: Any, *, default: int = 1) -> int:
+	"""Parse export_dates_as_jalali from request/form values.
+
+	* Missing / empty → *default* (Jalali ON for report export).
+	* Explicit false-y: ``0``, ``False``, ``"0"``, ``"false"``, ``"no"``, ``"off"`` → 0.
+	* Explicit true-y: ``1``, ``True``, ``"1"``, ``"true"``, ``"yes"``, ``"on"`` → 1.
+
+	An explicit OFF is never treated as missing.
+	"""
+	if raw is None or raw == "":
+		return 1 if default else 0
+	if isinstance(raw, bool):
+		return 1 if raw else 0
+	if isinstance(raw, (int, float)):
+		return 1 if int(raw) else 0
+	s = str(raw).strip().lower()
+	if s in ("0", "false", "no", "off"):
 		return 0
-	if isinstance(form_params, dict):
-		raw = form_params.get("export_dates_as_jalali")
-	else:
-		raw = getattr(form_params, "export_dates_as_jalali", None)
-	if raw is None and hasattr(frappe.local, "form_dict"):
-		raw = frappe.local.form_dict.get("export_dates_as_jalali")
-	return cint(raw)
+	if s in ("1", "true", "yes", "on"):
+		return 1
+	return 1 if cint(raw) else 0
+
+
+def _read_jalali_flag(form_params) -> int:
+	"""Return 1 (Jalali) by default for report export when the flag is absent."""
+	raw = None
+	present = False
+	if form_params is not None:
+		if isinstance(form_params, dict):
+			if "export_dates_as_jalali" in form_params:
+				raw = form_params.get("export_dates_as_jalali")
+				present = True
+		elif hasattr(form_params, "export_dates_as_jalali"):
+			# frappe._dict may expose missing keys as None via getattr; prefer key check.
+			if isinstance(form_params, frappe._dict) and "export_dates_as_jalali" in form_params:
+				raw = form_params.get("export_dates_as_jalali")
+				present = True
+			elif not isinstance(form_params, frappe._dict):
+				raw = getattr(form_params, "export_dates_as_jalali", None)
+				present = True
+
+	if not present and hasattr(frappe.local, "form_dict") and frappe.local.form_dict is not None:
+		fd = frappe.local.form_dict
+		if "export_dates_as_jalali" in fd:
+			raw = fd.get("export_dates_as_jalali")
+			present = True
+
+	if not present:
+		return parse_export_dates_as_jalali(None, default=1)
+	return parse_export_dates_as_jalali(raw, default=1)
 
 
 def _unwrap_export_query(fn):
