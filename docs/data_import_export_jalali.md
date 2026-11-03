@@ -11,7 +11,9 @@ Gregorian).
 > See [`RELEASE_2_1_0.md`](RELEASE_2_1_0.md).
 >
 > **Report export:** Persian Calendar **2.1.1** adds the same checkbox to report
-> export dialogs. See [`RELEASE_2_1_1.md`](RELEASE_2_1_1.md).
+> export dialogs (Jalali by default). **2.1.2** fixes Datetime / date+time
+> conversion (ISO with timezone, incomplete metadata). See
+> [`RELEASE_2_1_1.md`](RELEASE_2_1_1.md) and [`RELEASE_2_1_2.md`](RELEASE_2_1_2.md).
 
 ## Setup
 

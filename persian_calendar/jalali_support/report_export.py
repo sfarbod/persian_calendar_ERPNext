@@ -11,7 +11,13 @@ Patched upstream surfaces (Frappe ≥16.52):
 
 Conversion is **export-only**: report ``run()`` results used for desk display are not
 shared with the converted export rows (rows are shallow-copied before mutation).
-Column detection is metadata-driven (``fieldtype`` Date / Datetime only).
+
+Column detection (v2.1.2):
+
+1. Explicit ``Date`` / ``Datetime`` metadata.
+2. Python ``date`` / ``datetime`` objects (unless fieldtype is a non-date type).
+3. Strict ISO date/datetime strings (optional fraction + timezone) for Date/Datetime
+   columns, or for incomplete metadata on date-like fieldnames.
 """
 
 from __future__ import annotations
@@ -29,13 +35,54 @@ from persian_calendar.utils.data_io import convert_export_value
 logger = logging.getLogger("persian_calendar.report_export")
 
 _patches_applied = False
-# v2: Jalali is the default when export_dates_as_jalali is absent.
-_QUERY_REPORT_PATCH_VERSION = 2
-_REPORTVIEW_PATCH_VERSION = 2
+# v3: Datetime/ISO-with-tz + incomplete metadata date columns.
+_QUERY_REPORT_PATCH_VERSION = 3
+_REPORTVIEW_PATCH_VERSION = 3
 
-# Strict ISO-like date/datetime only — no locale-ambiguous forms (dd/mm/yyyy, 10.04.2026).
+# Never treat these fieldtypes as convertible date columns.
+_NON_DATE_FIELDTYPES = frozenset(
+	{
+		"Time",
+		"Duration",
+		"Int",
+		"Float",
+		"Currency",
+		"Percent",
+		"Check",
+		"Link",
+		"Dynamic Link",
+		"Select",
+		"Text",
+		"Small Text",
+		"Long Text",
+		"Code",
+		"HTML",
+		"JSON",
+		"Table",
+		"Attach",
+		"Attach Image",
+		"Password",
+		"Color",
+		"Rating",
+		"Geolocation",
+	}
+)
+
+# Strict ISO date/datetime (optional fractional seconds + Z/±HH:MM offset).
+# Rejects ambiguous locale forms such as 10.04.2026 or 06/09/2026.
 _ISO_DATE_RE = re.compile(
-	r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?$"
+	r"^(\d{4})-(\d{1,2})-(\d{1,2})"
+	r"(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?"
+	r"(?:Z|[+-]\d{2}:?\d{2})?)?$"
+)
+
+_TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?$")
+
+# Fieldnames that reliably denote date/datetime columns when metadata is incomplete.
+# Intentionally excludes Time-only names (posting_time, etc.).
+_DATE_FIELDNAME_RE = re.compile(
+	r"^(date|datetime|timestamp)$|(_date|_datetime)$|^(posting_date|transaction_date|due_date|from_date|to_date|schedule_date|creation|modified)$",
+	re.IGNORECASE,
 )
 
 
@@ -47,59 +94,164 @@ def apply_report_export_patches() -> None:
 	_patches_applied = True
 
 
+def _normalize_iso_text(value: str) -> str:
+	text = value.strip()
+	if "T" in text and " " not in text.split("T", 1)[0]:
+		text = text.replace("T", " ", 1)
+	return text
+
+
 def is_report_export_date_value(value: Any) -> bool:
 	"""True when *value* is a date/datetime object or a strict ISO date/datetime string."""
 	if value is None or value == "":
 		return False
-	if isinstance(value, (datetime, date)):
+	if isinstance(value, datetime):
+		return True
+	# Pure date (not datetime subclass check already done).
+	if isinstance(value, date) and not isinstance(value, datetime):
 		return True
 	if isinstance(value, str):
-		text = value.strip()
-		if "T" in text:
-			text = text.replace("T", " ", 1)
-		text = re.sub(r"(\d{1,2}:\d{2}:\d{2})\.\d+", r"\1", text)
+		text = _normalize_iso_text(value)
+		# Strip fractional seconds for matching after capturing via regex — full match below.
 		return bool(_ISO_DATE_RE.match(text))
 	return False
 
 
-def convert_report_export_value(value: Any, fieldtype: str | None, enabled: bool) -> Any:
+def is_time_only_value(value: Any) -> bool:
+	"""True for time-only values that must never be Jalali-converted."""
+	if value is None or value == "":
+		return False
+	try:
+		from datetime import time as dt_time
+		from datetime import timedelta
+
+		if isinstance(value, (dt_time, timedelta)):
+			return True
+	except Exception:
+		pass
+	if isinstance(value, str) and _TIME_ONLY_RE.match(value.strip()):
+		return True
+	return False
+
+
+def _iso_has_time(text: str) -> bool:
+	m = _ISO_DATE_RE.match(_normalize_iso_text(text))
+	return bool(m and m.group(4) is not None)
+
+
+def _strip_timezone_for_parse(text: str) -> str:
+	"""Keep wall-clock components; drop Z / ±HH:MM so shared helpers can parse."""
+	t = _normalize_iso_text(text)
+	if t.endswith("Z") or t.endswith("z"):
+		t = t[:-1]
+	t = re.sub(r"[+-]\d{2}:?\d{2}$", "", t)
+	# Normalize fractional seconds for get_datetime / toshamshi
+	t = re.sub(r"(\d{1,2}:\d{2}:\d{2})\.\d+", r"\1", t)
+	return t.strip()
+
+
+def resolve_report_export_fieldtype(
+	fieldtype: str | None,
+	value: Any,
+	*,
+	fieldname: str | None = None,
+) -> str | None:
+	"""Resolve effective Date/Datetime type for a report cell.
+
+	Priority:
+	1. Explicit Date / Datetime metadata.
+	2. Python date / datetime objects (when column is not a non-date fieldtype).
+	3. Strict ISO strings when fieldtype is Date/Datetime, or when metadata is
+	   incomplete (None / Data) and *fieldname* is a reliable date indicator.
+	"""
+	if is_time_only_value(value):
+		return None
+
+	ft = (fieldtype or "").strip() if isinstance(fieldtype, str) else fieldtype
+	if ft in _NON_DATE_FIELDTYPES:
+		return None
+
+	if ft in ("Date", "Datetime"):
+		# Prefer Datetime when the value clearly carries a time component.
+		if ft == "Date" and isinstance(value, datetime):
+			return "Datetime"
+		if ft == "Date" and isinstance(value, str) and _iso_has_time(value):
+			return "Datetime"
+		return ft
+
+	# Incomplete metadata: trust Python temporal objects.
+	if not ft or ft == "Data":
+		if isinstance(value, datetime):
+			return "Datetime"
+		if isinstance(value, date):
+			return "Date"
+		# ISO strings only when fieldname semantics establish a date column.
+		if isinstance(value, str) and fieldname and _DATE_FIELDNAME_RE.search(str(fieldname)):
+			if is_report_export_date_value(value):
+				return "Datetime" if _iso_has_time(value) else "Date"
+
+	return None
+
+
+def convert_report_export_value(
+	value: Any,
+	fieldtype: str | None,
+	enabled: bool,
+	*,
+	fieldname: str | None = None,
+) -> Any:
 	"""Convert a report cell for Jalali export without touching ambiguous strings."""
-	if not enabled or not fieldtype or fieldtype not in ("Date", "Datetime"):
+	if not enabled or value in (None, ""):
 		return value
-	if value in (None, ""):
+	if is_time_only_value(value):
 		return value
 
-	include_time = fieldtype == "Datetime"
+	effective = resolve_report_export_fieldtype(fieldtype, value, fieldname=fieldname)
+	if not effective:
+		return value
+
+	include_time = effective == "Datetime"
 
 	if isinstance(value, str):
 		if not is_report_export_date_value(value):
-			# Ambiguous / already-formatted / non-ISO — leave unchanged.
+			# Ambiguous / locale-formatted / non-ISO — leave unchanged.
 			return value
-		# Avoid coerce→getdate on Jalali ISO strings (would treat them as Gregorian).
 		from persian_calendar.utils.jalali import is_likely_jalali_date, toshamshi
 
-		if is_likely_jalali_date(value):
-			return toshamshi(value, include_time=include_time)
-		return convert_export_value(value, fieldtype, True)
+		normalized = _strip_timezone_for_parse(value)
+		if is_likely_jalali_date(normalized):
+			return toshamshi(normalized, include_time=include_time)
+		# convert_export_value → toshamshi; pass normalized wall-clock string.
+		return convert_export_value(normalized, effective, True)
 
-	if isinstance(value, (datetime, date)):
-		# DB/report date objects are Gregorian; year-in-Jalali-range is extremely rare.
-		return convert_export_value(value, fieldtype, True)
+	if isinstance(value, datetime):
+		# Use naive wall-clock components (preserve displayed local time).
+		naive = value.replace(tzinfo=None, microsecond=0) if value.tzinfo or value.microsecond else value
+		return convert_export_value(naive, effective, True)
 
-	return convert_export_value(value, fieldtype, True)
+	if isinstance(value, date):
+		return convert_export_value(value, effective, True)
+
+	return convert_export_value(value, effective, True)
 
 
-def _date_column_indexes(columns: list) -> list[tuple[int, str, str]]:
-	"""Return (index, fieldname, fieldtype) for Date/Datetime report columns."""
-	out: list[tuple[int, str, str]] = []
+def _convertible_column_indexes(columns: list) -> list[tuple[int, str, str | None]]:
+	"""Return (index, fieldname, declared_fieldtype) for potentially convertible columns.
+
+	Includes explicit Date/Datetime columns and incomplete metadata (None/Data)
+	with date-like fieldnames. Final per-cell gating uses resolve_report_export_fieldtype.
+	"""
+	out: list[tuple[int, str, str | None]] = []
 	for i, col in enumerate(columns or []):
 		if not isinstance(col, dict):
 			continue
 		ft = col.get("fieldtype")
-		if ft not in ("Date", "Datetime"):
-			continue
 		fname = col.get("fieldname") or col.get("field") or i
-		out.append((i, fname, ft))
+		if ft in ("Date", "Datetime"):
+			out.append((i, fname, ft))
+			continue
+		if (not ft or ft == "Data") and fname and _DATE_FIELDNAME_RE.search(str(fname)):
+			out.append((i, fname, ft))
 	return out
 
 
@@ -107,45 +259,59 @@ def convert_query_report_result(data: frappe._dict, enabled: bool) -> frappe._di
 	"""Return a copy of *data* with Date/Datetime cells converted when *enabled*.
 
 	Does not mutate the original ``data.result`` list or its row objects.
-	When enabled, Date/Datetime column fieldtypes are set to ``Data`` on the copy
+	When enabled, converted columns' fieldtypes are set to ``Data`` on the copy
 	so stock ``format_fields`` will not re-apply ``formatdate`` / ``format_datetime``.
 	"""
 	if not enabled or not data:
 		return data
 
 	columns = data.get("columns") or []
-	date_cols = _date_column_indexes(columns)
+	date_cols = _convertible_column_indexes(columns)
 	if not date_cols:
+		# Still scan for explicit Date/Datetime only via declared types — nothing to do.
 		return data
 
 	# Copy container + columns so we can retarget fieldtypes without touching cache.
 	out = frappe._dict(data)
 	out.columns = [dict(c) if isinstance(c, dict) else c for c in columns]
-	date_cols = _date_column_indexes(out.columns)
+	date_cols = _convertible_column_indexes(out.columns)
 
+	converted_col_indexes: set[int] = set()
 	new_result = []
 	for row in data.get("result") or []:
 		if isinstance(row, dict):
 			new_row = dict(row)
-			for _i, fname, ft in date_cols:
-				if fname in new_row:
-					new_row[fname] = convert_report_export_value(new_row[fname], ft, True)
+			for i, fname, ft in date_cols:
+				if fname not in new_row:
+					continue
+				before = new_row[fname]
+				after = convert_report_export_value(before, ft, True, fieldname=str(fname))
+				if after != before:
+					converted_col_indexes.add(i)
+				new_row[fname] = after
 			new_result.append(new_row)
 		elif isinstance(row, (list, tuple)):
 			new_row = list(row)
-			for i, _fname, ft in date_cols:
-				if i < len(new_row):
-					new_row[i] = convert_report_export_value(new_row[i], ft, True)
+			for i, fname, ft in date_cols:
+				if i >= len(new_row):
+					continue
+				before = new_row[i]
+				after = convert_report_export_value(before, ft, True, fieldname=str(fname))
+				if after != before:
+					converted_col_indexes.add(i)
+				new_row[i] = after
 			new_result.append(new_row)
 		else:
 			new_result.append(row)
 
 	out.result = new_result
 
-	# Prevent stock format_fields from reformatting Jalali strings as Gregorian.
-	for i, _fname, _ft in date_cols:
+	# Prevent stock format_fields from reformatting converted (or Date/Datetime) columns.
+	for i, _fname, ft in date_cols:
 		col = out.columns[i]
-		if isinstance(col, dict):
+		if not isinstance(col, dict):
+			continue
+		if ft in ("Date", "Datetime") or i in converted_col_indexes:
 			col["fieldtype"] = "Data"
 
 	return out
@@ -164,12 +330,16 @@ def convert_reportview_data_rows(
 	if not enabled or not data or len(data) < 2 or not fields_info:
 		return data
 
-	date_offsets: list[tuple[int, str]] = []
+	date_offsets: list[tuple[int, str | None, str | None]] = []
 	for i, info in enumerate(fields_info):
-		ft = (info or {}).get("fieldtype")
-		if ft in ("Date", "Datetime"):
+		info = info or {}
+		ft = info.get("fieldtype")
+		fname = info.get("fieldname")
+		if ft in ("Date", "Datetime") or (
+			(not ft or ft == "Data") and fname and _DATE_FIELDNAME_RE.search(str(fname))
+		):
 			# data columns: 0 = Sr, 1.. = fields_info[0..]
-			date_offsets.append((i + 1, ft))
+			date_offsets.append((i + 1, ft, fname))
 
 	if not date_offsets:
 		return data
@@ -180,12 +350,13 @@ def convert_reportview_data_rows(
 			out.append(row)
 			continue
 		new_row = list(row)
-		for col_idx, ft in date_offsets:
+		for col_idx, ft, fname in date_offsets:
 			if col_idx < len(new_row):
-				new_row[col_idx] = convert_report_export_value(new_row[col_idx], ft, True)
+				new_row[col_idx] = convert_report_export_value(
+					new_row[col_idx], ft, True, fieldname=str(fname) if fname else None
+				)
 		out.append(new_row)
 	return out
-
 
 def parse_export_dates_as_jalali(raw: Any, *, default: int = 1) -> int:
 	"""Parse export_dates_as_jalali from request/form values.
