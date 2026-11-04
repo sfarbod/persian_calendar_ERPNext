@@ -37,7 +37,8 @@ logger = logging.getLogger("persian_calendar.report_export")
 _patches_applied = False
 # v3: Datetime/ISO-with-tz + incomplete metadata date columns.
 _QUERY_REPORT_PATCH_VERSION = 3
-_REPORTVIEW_PATCH_VERSION = 3
+# v4: pop export_dates_as_jalali before DatabaseQuery.execute(**form_params).
+_REPORTVIEW_PATCH_VERSION = 4
 
 # Never treat these fieldtypes as convertible date columns.
 _NON_DATE_FIELDTYPES = frozenset(
@@ -465,6 +466,11 @@ def _patch_reportview_export() -> None:
 
 	def _export_query(form_params, csv_params, populate_response=True):
 		jalali = _read_jalali_flag(form_params)
+		# Frappe reportview spreads remaining form_params into DatabaseQuery.execute(**kwargs).
+		# The Jalali flag is not a valid execute argument — strip it after reading.
+		if isinstance(form_params, dict):
+			form_params.pop("export_dates_as_jalali", None)
+
 		if not jalali:
 			return _orig(form_params, csv_params, populate_response=populate_response)
 

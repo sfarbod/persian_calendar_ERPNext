@@ -5,6 +5,27 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] — 2026-11-04
+
+### Fixed
+
+- **Report View export failure:** The Report View `_export_query` wrapper now
+  removes `export_dates_as_jalali` from `form_params` after reading it, so Frappe
+  v16 no longer forwards that unsupported key into `DatabaseQuery.execute(**form_params)`.
+  This fixed Stock Entry (and other DocType) CSV/Excel Report View exports that
+  failed with `TypeError` (often masked by a secondary `BrokenPipeError`).
+- Jalali ON and Gregorian OFF Report View date export behavior is preserved.
+- Report View patch marker bumped to v4 so workers rebind the wrapper.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.54.0 |
+| ERPNext | 16.53.0 |
+
+See [`docs/RELEASE_2_1_3.md`](docs/RELEASE_2_1_3.md).
+
 ## [2.1.2] — 2026-11-03
 
 ### Fixed

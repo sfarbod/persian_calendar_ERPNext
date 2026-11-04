@@ -12,8 +12,10 @@ Gregorian).
 >
 > **Report export:** Persian Calendar **2.1.1** adds the same checkbox to report
 > export dialogs (Jalali by default). **2.1.2** fixes Datetime / date+time
-> conversion (ISO with timezone, incomplete metadata). See
-> [`RELEASE_2_1_1.md`](RELEASE_2_1_1.md) and [`RELEASE_2_1_2.md`](RELEASE_2_1_2.md).
+> conversion (ISO with timezone, incomplete metadata). **2.1.3** fixes Report View
+> export TypeError when `export_dates_as_jalali` was forwarded to
+> `DatabaseQuery.execute`. See [`RELEASE_2_1_1.md`](RELEASE_2_1_1.md),
+> [`RELEASE_2_1_2.md`](RELEASE_2_1_2.md), and [`RELEASE_2_1_3.md`](RELEASE_2_1_3.md).
 
 ## Setup
 
