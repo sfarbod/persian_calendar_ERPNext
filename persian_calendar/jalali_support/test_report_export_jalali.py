@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Persian Calendar contributors
 # License: MIT
 
-"""v2.1.1 / v2.1.2 — Query Report / Report View export Jalali conversion tests."""
+"""v2.1.1 / v2.1.2 / v2.1.3 — Query Report / Report View export Jalali tests."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from frappe.utils import cstr
 from openpyxl import load_workbook
 
 from persian_calendar.jalali_support.report_export import (
+	_REPORTVIEW_PATCH_VERSION,
+	_read_jalali_flag,
 	apply_report_export_patches,
 	convert_query_report_result,
 	convert_report_export_value,
@@ -22,7 +24,6 @@ from persian_calendar.jalali_support.report_export import (
 	is_time_only_value,
 	parse_export_dates_as_jalali,
 	resolve_report_export_fieldtype,
-	_read_jalali_flag,
 )
 from persian_calendar.utils.data_io import convert_export_value
 
@@ -71,6 +72,15 @@ class TestReportExportJalaliHelpers(FrappeTestCase):
 		self.assertEqual(getattr(reportview._export_query, "_jalali_patch_version", None), v2)
 		self.assertTrue(getattr(query_report._export_query, "_jalali_is_wrapper", False))
 		self.assertTrue(getattr(reportview._export_query, "_jalali_is_wrapper", False))
+
+	def test_reportview_patch_version_is_4(self):
+		from frappe.desk import reportview
+
+		apply_report_export_patches()
+		self.assertEqual(_REPORTVIEW_PATCH_VERSION, 4)
+		self.assertEqual(getattr(reportview._export_query, "_jalali_patch_version", None), 4)
+		self.assertTrue(getattr(reportview._export_query, "_jalali_is_wrapper", False))
+		self.assertTrue(callable(getattr(reportview._export_query, "_jalali_orig", None)))
 
 	def test_iso_detection(self):
 		self.assertTrue(is_report_export_date_value("2026-09-06"))
@@ -783,3 +793,197 @@ class TestDatetimeExportWrapper(FrappeTestCase):
 			text = self._response_text()
 			self.assertIn(expected, text)
 			self.assertIn("5", text)
+
+
+class TestReportViewExportJalaliFlag(FrappeTestCase):
+	"""v2.1.3 — Report View must not forward export_dates_as_jalali to DatabaseQuery.execute."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		apply_report_export_patches()
+
+	def setUp(self):
+		super().setUp()
+		frappe.local.response = frappe._dict()
+		if getattr(frappe.local, "form_dict", None) is not None:
+			frappe.local.form_dict.pop("export_dates_as_jalali", None)
+
+	@staticmethod
+	def _xlsx_text(content: bytes) -> str:
+		wb = load_workbook(BytesIO(content), data_only=True)
+		ws = wb.active
+		parts = []
+		for row in ws.iter_rows(values_only=True):
+			for cell in row:
+				if cell is not None and str(cell).strip() != "":
+					parts.append(cstr(cell))
+		return "\n".join(parts)
+
+	def _stock_entry_names(self, limit: int) -> list[str]:
+		if not frappe.db.exists("DocType", "Stock Entry"):
+			self.skipTest("Stock Entry DocType not installed")
+		names = frappe.get_all("Stock Entry", pluck="name", order_by="creation desc", limit=limit)
+		if len(names) < min(limit, 3):
+			self.skipTest(f"Need Stock Entry rows for Report View export (have {len(names)})")
+		return names
+
+	def _export_stock_entry(self, *, jalali, file_format_type, names, populate_response=False):
+		from frappe.desk import reportview as mod
+
+		apply_report_export_patches()
+		fields = [
+			"`tabStock Entry`.`name`",
+			"`tabStock Entry`.`posting_date`",
+			"`tabStock Entry`.`purpose`",
+		]
+		form_params = frappe._dict(
+			doctype="Stock Entry",
+			fields=list(fields),
+			filters=[],
+			order_by="`tabStock Entry`.`creation` desc",
+			start=0,
+			page_length=20,
+			with_comment_count=0,
+			file_format_type=file_format_type,
+			title="Stock Entry",
+			translate_values=0,
+			visible_names=list(names),
+			as_list=True,
+			limit_page_length=None,
+			strict=None,
+			export_dates_as_jalali=jalali,
+		)
+		return mod._export_query(form_params, {}, populate_response=populate_response)
+
+	def test_flag_not_forwarded_to_database_query_execute(self):
+		from frappe.desk import reportview as mod
+		from unittest.mock import patch
+
+		# reportview imports DatabaseQuery from frappe.model.qb_query (Frappe v16).
+		DatabaseQuery = mod.DatabaseQuery
+
+		apply_report_export_patches()
+		seen = {}
+
+		def _spy_execute(self, *args, **kwargs):
+			seen["kwargs"] = dict(kwargs)
+			raise RuntimeError("stop-after-kwargs-capture")
+
+		form_params = frappe._dict(
+			doctype="ToDo",
+			fields=["`tabToDo`.`name`", "`tabToDo`.`creation`"],
+			filters=[],
+			order_by="`tabToDo`.`creation` desc",
+			start=0,
+			page_length=5,
+			with_comment_count=0,
+			file_format_type="CSV",
+			title="ToDo",
+			translate_values=0,
+			as_list=True,
+			limit_page_length=None,
+			strict=None,
+			export_dates_as_jalali=1,
+		)
+		with patch.object(DatabaseQuery, "execute", _spy_execute):
+			with self.assertRaises(RuntimeError):
+				mod._export_query(form_params, {}, populate_response=False)
+
+		self.assertIn("kwargs", seen)
+		self.assertNotIn("export_dates_as_jalali", seen["kwargs"])
+		self.assertNotIn("export_dates_as_jalali", form_params)
+
+	def test_stock_entry_csv_jalali_on(self):
+		names = self._stock_entry_names(5)
+		_title, ext, content = self._export_stock_entry(
+			jalali=1, file_format_type="CSV", names=names
+		)
+		self.assertEqual(ext, "csv")
+		text = content.decode() if isinstance(content, bytes) else content
+		self.assertIn("Posting Date", text)
+		# Jalali year prefix for current site dates around 140x
+		self.assertTrue(
+			any(part.startswith("140") for part in text.replace("\r", "").split(",") if part),
+			msg=f"expected Jalali date in CSV export:\n{text[:500]}",
+		)
+
+	def test_stock_entry_excel_jalali_on(self):
+		names = self._stock_entry_names(5)
+		_title, ext, content = self._export_stock_entry(
+			jalali=1, file_format_type="Excel", names=names
+		)
+		self.assertEqual(ext, "xlsx")
+		text = self._xlsx_text(content)
+		self.assertTrue(
+			any(tok.startswith("140") for tok in text.splitlines()),
+			msg=f"expected Jalali date in Excel export:\n{text[:500]}",
+		)
+
+	def test_stock_entry_csv_excel_jalali_off_gregorian(self):
+		names = self._stock_entry_names(5)
+		for fmt, ext_expected in (("CSV", "csv"), ("Excel", "xlsx")):
+			_title, ext, content = self._export_stock_entry(
+				jalali=0, file_format_type=fmt, names=names
+			)
+			self.assertEqual(ext, ext_expected)
+			if fmt == "CSV":
+				text = content.decode() if isinstance(content, bytes) else content
+			else:
+				text = self._xlsx_text(content)
+			self.assertRegex(text, r"20\d{2}")
+			# Should not convert to Jalali when OFF
+			self.assertFalse(
+				any(
+					tok.startswith("140") and "-" in tok
+					for tok in text.replace(",", "\n").splitlines()
+				),
+				msg=f"unexpected Jalali date when flag OFF ({fmt}):\n{text[:500]}",
+			)
+
+	def test_reportview_without_date_columns(self):
+		names = self._stock_entry_names(3)
+		from frappe.desk import reportview as mod
+
+		apply_report_export_patches()
+		form_params = frappe._dict(
+			doctype="Stock Entry",
+			fields=["`tabStock Entry`.`name`", "`tabStock Entry`.`purpose`"],
+			filters=[],
+			order_by="`tabStock Entry`.`creation` desc",
+			start=0,
+			page_length=20,
+			with_comment_count=0,
+			file_format_type="CSV",
+			title="Stock Entry",
+			translate_values=0,
+			visible_names=list(names),
+			as_list=True,
+			limit_page_length=None,
+			strict=None,
+			export_dates_as_jalali=1,
+		)
+		_title, ext, content = mod._export_query(form_params, {}, populate_response=False)
+		self.assertEqual(ext, "csv")
+		text = content.decode() if isinstance(content, bytes) else content
+		for name in names:
+			self.assertIn(name, text)
+
+	def test_reportview_large_dataset_200(self):
+		names = self._stock_entry_names(200)
+		_title, ext, content = self._export_stock_entry(
+			jalali=1, file_format_type="CSV", names=names
+		)
+		self.assertEqual(ext, "csv")
+		text = content.decode() if isinstance(content, bytes) else content
+		# header + ~200 body rows
+		self.assertGreaterEqual(text.count("\n"), 200)
+
+	def test_populate_response_compatibility(self):
+		names = self._stock_entry_names(3)
+		frappe.local.response = frappe._dict()
+		result = self._export_stock_entry(
+			jalali=1, file_format_type="CSV", names=names, populate_response=True
+		)
+		self.assertIsNone(result)
+		self.assertTrue(frappe.local.response.get("filecontent") or frappe.local.response.get("type"))
