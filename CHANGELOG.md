@@ -5,6 +5,28 @@ All notable changes to **persian_calendar** (Persian Calendar / ERPNext Extensio
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] — 2026-11-21
+
+### Fixed
+
+- **List View date filters under Jalali (Frappe ≥16.60):** The Jalali air-datepicker
+  compatibility shim now implements `destroy()` and a working `selectDate()` that
+  commits Gregorian values via `set_value`. This restores compatibility with the
+  new Frappe filter panel (`destroy_calendar`, mobile/filter-sheet date picking).
+- Air-datepicker cleanup no longer destroys DateRange / filter-panel pickers
+  (Date filters default to **Between** → DateRange).
+- DateRange values typed as Jalali are normalized to Gregorian on parse/get_value.
+- Gregorian calendar mode and Query Report / form date pickers remain unchanged.
+
+### Compatibility
+
+| Component | Validated |
+|-----------|-----------|
+| Frappe | 16.60.2 |
+| ERPNext | 16.60.0 |
+
+See [`docs/RELEASE_2_1_4.md`](docs/RELEASE_2_1_4.md).
+
 ## [2.1.3] — 2026-11-04
 
 ### Fixed
