@@ -785,13 +785,51 @@
     return true;
   }
 
-  /** Air-datepicker compatibility for ERPNext scripts (e.g. Employee date_of_birth maxDate). */
+  /**
+   * Convert a Date / ISO / Jalali string to a Gregorian model value for the control.
+   * Used by the air-datepicker shim so Frappe ≥16.60 filter sheet / destroy_calendar
+   * paths keep working under Jalali mode.
+   */
+  function dateLikeToGregorianModel(value, fieldtype) {
+    const U = getDateUtils();
+    if (value == null || value === "") {
+      return value;
+    }
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, "0");
+      const d = String(value.getDate()).padStart(2, "0");
+      if (fieldtype === "Datetime" || fieldtype === "Time") {
+        const hh = String(value.getHours()).padStart(2, "0");
+        const mi = String(value.getMinutes()).padStart(2, "0");
+        const ss = String(value.getSeconds()).padStart(2, "0");
+        return `${y}-${m}-${d} ${hh}:${mi}:${ss}`;
+      }
+      return `${y}-${m}-${d}`;
+    }
+    const raw = String(value).trim();
+    if (!U) {
+      return raw;
+    }
+    if (fieldtype === "Datetime") {
+      return U.normalizeModelDateTime(raw) || raw;
+    }
+    return U.normalizeModelDate(raw) || raw;
+  }
+
+  /** Air-datepicker compatibility for ERPNext scripts and Frappe filter panel (v16.60+). */
   function installJalaliDatepickerShim(control) {
     if (!control || !control.jalaliDatepicker) return;
     const jalaliInstance = control.jalaliDatepicker;
+    // Preserve a real air-datepicker if somehow still attached (Gregorian fallback).
+    if (control.datepicker && !control.datepicker._pcJalaliShim && control.datepicker.$datepicker) {
+      return;
+    }
     control.datepicker = {
       _pcJalaliShim: true,
       opts: {},
+      selectedDates: [],
+      $datepicker: null,
       update(keyOrOpts, val) {
         if (typeof keyOrOpts === "object" && keyOrOpts !== null) {
           if (keyOrOpts.maxDate !== undefined) {
@@ -808,14 +846,66 @@
         }
       },
       clear() {
+        this.selectedDates = [];
         if (control.$input) control.$input.val("");
         jalaliInstance.selectedDate = null;
+        if (control.set_value) {
+          control.set_value("");
+        }
       },
       hide() {
         if (jalaliInstance.isOpen) jalaliInstance.close();
       },
-      selectDate() {
-        /* no-op: Jalali picker sets values via applySelectedValue */
+      /**
+       * Frappe filter sheet (pick_date_step) and ControlDate.set_formatted_input call
+       * selectDate with native Date object(s). Must commit Gregorian via set_value —
+       * a no-op left filters empty under Jalali (BrokenPipe-class empty results).
+       */
+      selectDate(dates) {
+        const list = [].concat(dates == null ? [] : dates).filter((d) => d !== "" && d != null);
+        this.selectedDates = list.filter((d) => d instanceof Date && !isNaN(d.getTime()));
+        if (!control.set_value) {
+          return;
+        }
+        const ft = control.df?.fieldtype || "Date";
+        if (!list.length) {
+          control.set_value("");
+          return;
+        }
+        if (ft === "DateRange" || list.length > 1) {
+          const start = dateLikeToGregorianModel(list[0], "Date");
+          const end = dateLikeToGregorianModel(list[list.length - 1], "Date");
+          control.set_value([start, end]);
+          return;
+        }
+        control.set_value(dateLikeToGregorianModel(list[0], ft));
+      },
+      /**
+       * Frappe ≥16.60 filter.js destroy_calendar() calls datepicker.destroy().
+       * Optional chaining still invokes destroy when the object exists; missing
+       * destroy() throws and breaks filter field recreation under Jalali.
+       */
+      destroy() {
+        try {
+          if (jalaliInstance && typeof jalaliInstance.destroy === "function") {
+            jalaliInstance.destroy();
+          } else if (jalaliInstance && typeof jalaliInstance.close === "function") {
+            jalaliInstance.close();
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        this.selectedDates = [];
+        if (control.jalaliDatepicker === jalaliInstance) {
+          control.jalaliDatepicker = null;
+        }
+        if (control.$input && control.$input.length) {
+          control.$input.removeData("jalaliDatepickerInstance");
+          control.$input.removeAttr("data-has-jalali-datepicker");
+        }
+        if (control.datepicker && control.datepicker._pcJalaliShim) {
+          control.datepicker = null;
+        }
       },
     };
   }
@@ -4130,6 +4220,15 @@ class JalaliDatepicker {
         }
 
         if (useJalali) {
+          // Filter sheet (Frappe ≥16.60) spreads field.datepicker_options into an
+          // inline air-datepicker; keep options even though we use the Jalali UI.
+          try {
+            if (typeof BaseControlDate.prototype.set_date_options === "function") {
+              BaseControlDate.prototype.set_date_options.call(this);
+            }
+          } catch (e) {
+            /* ignore */
+          }
           if (!this.jalaliDatepicker) {
             this.setupInputWithoutAirDatepicker();
             this.replaceWithJalaliDatepicker();
@@ -4754,50 +4853,135 @@ class JalaliDatepicker {
     
     frappe.ui.form.ControlDatetime = JalaliControlDatetime;
 
+    // DateRange (List Filter "Between", default for Date since Frappe filter panel):
+    // keep native air-datepicker, but normalize Jalali-typed values to Gregorian.
+    if (frappe.ui.form.ControlDateRange && !frappe.ui.form.ControlDateRange.prototype._pcJalaliRangePatched) {
+      const BaseControlDateRange = frappe.ui.form.ControlDateRange;
+      class JalaliControlDateRange extends BaseControlDateRange {
+        parse(value) {
+          const parsed = BaseControlDateRange.prototype.parse.call(this, value);
+          if (!shouldUseJalaliCalendar() || parsed == null) {
+            return parsed;
+          }
+          const U = getDateUtils();
+          if (!U) {
+            return parsed;
+          }
+          if (Array.isArray(parsed) && parsed.length >= 2) {
+            return [
+              U.normalizeModelDate(parsed[0]) || parsed[0],
+              U.normalizeModelDate(parsed[1]) || parsed[1],
+            ];
+          }
+          return parsed;
+        }
+
+        get_value() {
+          const val = BaseControlDateRange.prototype.get_value
+            ? BaseControlDateRange.prototype.get_value.call(this)
+            : this.value;
+          if (!shouldUseJalaliCalendar() || val == null || val === "") {
+            return val;
+          }
+          const U = getDateUtils();
+          if (!U) {
+            return val;
+          }
+          if (Array.isArray(val) && val.length >= 2) {
+            return [
+              U.normalizeModelDate(val[0]) || val[0],
+              U.normalizeModelDate(val[1]) || val[1],
+            ];
+          }
+          if (typeof val === "string" && val.includes(",")) {
+            return this.parse(val);
+          }
+          return val;
+        }
+      }
+      JalaliControlDateRange.prototype._pcJalaliRangePatched = true;
+      frappe.ui.form.ControlDateRange = JalaliControlDateRange;
+    }
+
     installFormGridJalaliHooks();
   }
 
-  // Function to remove all existing air-datepicker instances from the page
+  /** Inputs that must keep native air-datepicker (DateRange Between filters, filter sheet). */
+  function shouldPreserveAirDatepickerInput($input) {
+    if (!$input || !$input.length) {
+      return false;
+    }
+    if (isTimeFieldInput($input)) {
+      return true;
+    }
+    const ft = ($input.attr("data-fieldtype") || "").toString();
+    if (ft === "DateRange" || ft === "Time") {
+      return true;
+    }
+    if (
+      $input.closest(
+        ".filter-field, .filter-box, .filter-edit-area, .filter-calendar, .filter-sheet"
+      ).length
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Function to remove stale air-datepicker instances that conflict with Jalali Date/Datetime.
+  // Must NOT destroy DateRange / filter-panel pickers (Frappe ≥16.60 defaults Date → Between).
   function removeAllAirDatepickerInstances() {
-    // Only target inputs that don't have jalali-datepicker
+    if (!shouldUseJalaliCalendar()) {
+      return;
+    }
+
+    // Only target inputs that don't have jalali-datepicker and are not protected
     const $airDatepickerInputs = $('input.datepicker-input, input.hasDatepicker').filter(function() {
-      // Skip inputs that already have jalali-datepicker instance
       const $input = $(this);
-      if (isTimeFieldInput($input)) {
+      if (shouldPreserveAirDatepickerInput($input)) {
         return false;
       }
-      // Check multiple ways to identify Jalali datepicker
       const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
       const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
       const jalaliInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
       const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
-      
-      // Skip if any Jalali datepicker indicator is present
       return !hasJalaliAttr && !hasJalaliData && !jalaliInstance && !jalaliDataInstance;
     });
     
     // Only proceed if there are actual air-datepicker instances to remove
-    const hasAirDatepicker = $('.air-datepicker').length > 0 || $airDatepickerInputs.length > 0;
+    const hasAirDatepicker = $('.air-datepicker').not('.jalali-datepicker').length > 0 || $airDatepickerInputs.length > 0;
     
     if (!hasAirDatepicker) {
-      // No air-datepicker instances found, skip removal to avoid unnecessary processing
       return;
     }
     
-    // Remove all air-datepicker calendars (but not jalali-datepicker)
-    $('.air-datepicker').not('.jalali-datepicker').remove();
+    // Remove orphaned calendars not tied to protected filter/DateRange inputs
+    $('.air-datepicker').not('.jalali-datepicker').each(function () {
+      const $cal = $(this);
+      if ($cal.closest(".filter-calendar, .filter-sheet, .filter-field").length) {
+        return;
+      }
+      const $owner = $cal.data("datepicker")?.el
+        ? $($cal.data("datepicker").el)
+        : $();
+      if ($owner.length && shouldPreserveAirDatepickerInput($owner)) {
+        return;
+      }
+      $cal.remove();
+    });
     
-    // Remove air-datepicker classes and attributes from filtered inputs only
     $airDatepickerInputs.each(function() {
       const $input = $(this);
-      // Double check this input doesn't have jalali-datepicker
+      if (shouldPreserveAirDatepickerInput($input)) {
+        return;
+      }
       const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
       const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
       const jalaliInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
       const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
       
       if (hasJalaliAttr || hasJalaliData || jalaliInstance || jalaliDataInstance) {
-        return; // Skip this input
+        return;
       }
       
       $input.removeClass('datepicker-input hasDatepicker');
@@ -4805,26 +4989,19 @@ class JalaliDatepicker {
       $input.removeAttr('data-alt-input');
       $input.removeAttr('data-alt-format');
       $input.removeData('datepicker');
-      
-      // Remove event listeners
       $input.off('.datepicker');
     });
     
-    // Remove any datepicker icons or buttons (but not jalali datepicker buttons)
     $('.datepicker-icon, .datepicker-btn').not('.jalali-datepicker .today-btn, .jalali-datepicker .now-btn').remove();
     
-    // Remove any air-datepicker instances from global scope
     if (window.Datepicker && window.Datepicker.instances) {
       try {
-        // Try to destroy all instances that are not our Jalali datepickers
         Object.keys(window.Datepicker.instances).forEach(key => {
           try {
             const instance = window.Datepicker.instances[key];
-            // Only destroy if it's a real air-datepicker instance
-            // Check if the input has jalali-datepicker sibling
             if (instance && instance.el) {
               const $el = $(instance.el);
-              if (isTimeFieldInput($el)) {
+              if (shouldPreserveAirDatepickerInput($el)) {
                 return;
               }
               const hasJalaliSibling = $el.siblings('.jalali-datepicker').length > 0;
@@ -4833,37 +5010,37 @@ class JalaliDatepicker {
               }
             }
           } catch(e) {
-            // Silently ignore errors for individual instances
+            /* ignore */
           }
         });
       } catch(e) {
-        // Silently ignore errors accessing instances
+        /* ignore */
       }
     }
   }
   
-  // Remove existing air-datepicker instances immediately
+  // Remove conflicting air-datepicker instances when Jalali is active
   removeAllAirDatepickerInstances();
   
-  // Also remove them periodically to catch any dynamically created ones
-  // Use longer interval and only remove if needed
   setInterval(function() {
-    // Only run cleanup if there are actual air-datepicker instances
+    if (!shouldUseJalaliCalendar()) {
+      return;
+    }
     if ($('.air-datepicker').not('.jalali-datepicker').length > 0 || 
         $('input.datepicker-input, input.hasDatepicker').filter(function() {
           const $input = $(this);
-          // Check all ways to identify Jalali datepicker
+          if (shouldPreserveAirDatepickerInput($input)) {
+            return false;
+          }
           const hasJalaliAttr = $input.attr('data-has-jalali-datepicker') === 'true';
           const hasJalaliData = $input.data('hasJalaliDatepicker') === true;
           const jalaliSiblingInstance = $input.siblings('.jalali-datepicker').data('jalaliDatepickerInstance');
           const jalaliDataInstance = $input.data('jalaliDatepickerInstance');
-          
-          // Return true only if NO Jalali datepicker indicators are present
           return !hasJalaliAttr && !hasJalaliData && !jalaliSiblingInstance && !jalaliDataInstance;
         }).length > 0) {
       removeAllAirDatepickerInstances();
     }
-  }, 2000); // Changed from 1000ms to 2000ms to be less aggressive
+  }, 2000);
 
   // Pre-normalize child tables before grid render (CSV import); do not wait for control override.
   installRefreshFieldPreNormalize();
